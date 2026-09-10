@@ -155,6 +155,7 @@ return function(ctx)
     end
 
     function module.observe(minigame, t)
+        t = ctx.time()
         if minigame and blocked_key == tostring(minigame) then return end
         if recovering and t and t > recovery_until then
             module.reset("recovery_timeout")
@@ -242,6 +243,8 @@ return function(ctx)
         if not vector and not direction then
             return original
         end
+        -- RPC receipts use gameplay time; the caller's fixed-step time can lag behind them.
+        t = ctx.time()
         if not t or not current or current ~= ctx.active_minigame or not ctx.settings.enable_balance
             or not ready or not sample_at or t < sample_at or t - sample_at > SAMPLE_TIMEOUT
             or current:is_completed() or current:state() ~= MinigameSettings.game_states.gameplay
