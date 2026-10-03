@@ -7,13 +7,13 @@ return function(ctx)
     local marked = {}
     local next_refresh = 0
     local player_unit, weapon_action, scanning
-    local hold_target, pending_target
+    local hold_target, pending_target, retry_target
     local ack_until = 0
     local pressed_at, hold_until, retry_at = nil, 0, 0
     local confirming = false
 
     local function clear_input()
-        hold_target, pending_target, pressed_at = nil, nil, nil
+        hold_target, pending_target, retry_target, pressed_at = nil, nil, nil, nil
         ack_until = 0
         hold_until, retry_at, confirming = 0, 0, false
     end
@@ -130,6 +130,7 @@ return function(ctx)
                 confirming = true
             end
             if eligible_target() ~= hold_target or t > hold_until or confirming and action ~= "action_scan_confirm" then
+                retry_target = hold_target
                 hold_target, pressed_at, confirming = nil, nil, false
                 retry_at = math.max(retry_at, t + 0.3)
             end
@@ -158,6 +159,7 @@ return function(ctx)
         end
         local target = eligible_target()
         if hold_target and (hold_target ~= target or t > hold_until) then
+            retry_target = hold_target
             hold_target, pressed_at, confirming = nil, nil, false
             retry_at = t + 0.3
         end
@@ -170,10 +172,11 @@ return function(ctx)
         if not hold_target then
             -- Only the service press enters the serialized input stream.
             if source ~= "input_service" or action ~= "action_one_pressed"
-                or current_action ~= "action_scan" or t < retry_at then
+                or current_action ~= "action_scan" or target == retry_target and t < retry_at then
                 return original
             end
             hold_target, pressed_at = target, t
+            retry_target = target
             hold_until, retry_at = t + HOLD_DURATION, t + 0.3
         end
         if action == "action_one_hold" then

@@ -11,6 +11,7 @@ return function(ctx)
     local views = setmetatable({}, { __mode = "k" })
     local stopped_clocks = setmetatable({}, { __mode = "k" })
     local clock_receipts = setmetatable({}, { __mode = "k" })
+    local board_receipts = setmetatable({}, { __mode = "k" })
     local holds = { action_one_hold = true, interact_hold = true, interact_primary_hold = true, jump_held = true }
 
     local function clear_press()
@@ -39,6 +40,7 @@ return function(ctx)
         if reason == "session_end" and game then
             stopped_clocks[game] = board_start or game._decode_start_time
             clock_receipts[game] = nil
+            board_receipts[game] = nil
         end
         game, previous_start, board_start, board_target = nil, nil, nil, nil
         candidate_start, candidate_target, candidate_since = nil, nil, nil
@@ -48,6 +50,7 @@ return function(ctx)
         if reason ~= "session_end" then
             stopped_clocks = setmetatable({}, { __mode = "k" })
             clock_receipts = setmetatable({}, { __mode = "k" })
+            board_receipts = setmetatable({}, { __mode = "k" })
         end
     end
 
@@ -56,11 +59,13 @@ return function(ctx)
             if ctx.session_valid(mg) then return end
             if game == mg then module.reset("ownership_changed") end
             if not mg._is_server then clock_receipts[mg] = false end
+            board_receipts[mg] = nil
             return
         end
         if not ctx.is_local_player(player) then
             if game == mg then module.reset("ownership_changed") end
             if not mg._is_server then clock_receipts[mg] = false end
+            board_receipts[mg] = nil
             return
         end
         -- Own setup RPCs can precede local unit initialization; foreign starts/real stops retire them.
@@ -85,11 +90,23 @@ return function(ctx)
             return
         end
         clock_receipts[mg] = nil
+        board_receipts[mg] = nil
         if game == mg then
             stopped_clocks[mg] = board_start or mg._decode_start_time
             game, observed_at = nil, nil
             clear_press()
         end
+    end
+
+    local function board_ready(mg, start)
+        local receipt = board_receipts[mg]
+        if not receipt or receipt.symbols ~= mg._symbols or receipt.start ~= start or not receipt.stage then
+            return false
+        end
+        for i = 1, mg._stage_amount do
+            if receipt.targets[i] == nil or receipt.targets[i] ~= mg._decode_targets[i] then return false end
+        end
+        return true
     end
 
     local function sync_ready(mg, t)
@@ -106,13 +123,16 @@ return function(ctx)
                 candidate_since = nil
                 return false
             end
-            if not candidate_since or candidate_start ~= start or candidate_target ~= target then
-                candidate_start, candidate_target, candidate_since = start, target, t
-                return false
+            if not board_ready(mg, start) then
+                if not candidate_since or candidate_start ~= start or candidate_target ~= target then
+                    candidate_start, candidate_target, candidate_since = start, target, t
+                    return false
+                end
+                if t - candidate_since < 0.12 then return false end
             end
-            if t - candidate_since < 0.12 then return false end
             waiting = false
             clock_receipts[mg] = nil
+            board_receipts[mg] = nil
         end
         board_start, board_target = start, target
         return true
@@ -200,26 +220,41 @@ return function(ctx)
         module.stop(self, is_automatic)
     end)
     mod:hook_safe("MinigameDecodeSymbols", "set_current_stage", function(self, stage)
-        if not self._is_server then stage_received(self, stage) end
+        if not self._is_server then
+            local receipt = board_receipts[self]
+            if receipt then receipt.stage = stage == 1 end
+            stage_received(self, stage)
+        end
     end)
     mod:hook_safe("MinigameDecodeSymbols", "on_action_pressed", function(self, t)
         if self._is_server then stage_received(self, self._current_stage) end
     end)
     mod:hook_safe("MinigameDecodeSymbols", "setup_game", function(self)
+        board_receipts[self] = nil
         if game == self then clear_press() end
     end)
     mod:hook_safe("MinigameDecodeSymbols", "set_symbols", function(self, symbols)
         if clock_receipts[self] then clock_receipts[self] = nil end
+        if not self._is_server then
+            -- A cloned board starts a receipt set; retained target values are not receipts.
+            board_receipts[self] = { symbols = self._symbols, targets = {} }
+        end
         if game ~= self then return end
         previous_start = board_start or previous_start
         candidate_start, candidate_target, candidate_since = nil, nil, nil
         waiting = true
         clear_press()
     end)
+    mod:hook_safe("MinigameDecodeSymbols", "set_target", function(self, stage, target)
+        local receipt = board_receipts[self]
+        if receipt then receipt.targets[stage] = target end
+    end)
     mod:hook_safe("MinigameDecodeSymbols", "set_start_time", function(self, time)
         -- A nil-player start outside our continuing state belongs to another client (or an AI hack).
         if self._is_server or clock_receipts[self] == false then return end
         clock_receipts[self] = { start = time, symbols = self._symbols }
+        local receipt = board_receipts[self]
+        if receipt then receipt.start = time end
         if game == self and waiting then
             previous_start = nil
             candidate_since = nil

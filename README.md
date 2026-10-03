@@ -1,5 +1,7 @@
 # BetterBrainer
 
+Current release: **1.0.2**.
+
 A standalone DMF mod for Darktide minigame assistance. This is a new implementation, not a dependency or extension of NoBrainer.
 
 ## Features
@@ -10,6 +12,8 @@ A standalone DMF mod for Darktide minigame assistance. This is a new implementat
 - Frequency: directional arrows and proportional steering, plus direct submission of the known target on an automated consumed press. Submission does not wait for the displayed waveform to align.
 - Balance: bounded, latency-aware predictive steering.
 - Auspex Scan: scannable-object highlights and automatic confirmation while aiming at an eligible target.
+
+At speed 5, Frequency starts as soon as its opening receipts and initial release permit, and Search submits on the first fully confirmed target sample after movement. Symbols skips its 120 ms stability wait when a complete fresh board has been received. After an interrupted scan, a different target can begin immediately once the scanner returns to scan mode; the same target retains its retry delay. Native Drill searching/transitions, Balance objective duration and one-second scan confirmation still apply.
 
 There are 15 controls across six feature groups plus language selection. All checkboxes default on; the three solver speeds default to 1 (range 1-5), and language defaults to automatic. English, Simplified Chinese, Traditional Chinese and Russian can be selected explicitly; language changes require restart. Settings belong to the new mod ID; NoBrainer settings are not migrated.
 
@@ -31,7 +35,7 @@ Symbols, Search, Drill, Frequency and Balance share a missing-owner fallback onl
 
 Harmless Symbols start-without-player receipts preserve the board clock, synchronization gates and pending predictions. A stop-without-argument receipt while that exact local client state continues rearms only the pulse, because native stop clears its held-edge state. Pending deadlines remain intact. Real stop(Player), board replacement and exit keep their existing cleanup.
 
-Symbols records start-clock receipts against the exact minigame and cloned board, including receipts arriving before local unit initialization. Local start consumes that evidence instead of misclassifying the fresh clock as a stopped clock. Foreign starts and real stops retire it; a retained board without a fresh eligible receipt remains blocked. A new receipt can reuse the same numeric fixed-frame clock. The engine clock and cursor calculation are unchanged, including clocks numerically ahead of gameplay time, and the existing stable-board wait remains in place.
+Symbols records start-clock receipts against the exact minigame and cloned board, including receipts arriving before local unit initialization. Local start consumes that evidence instead of misclassifying the fresh clock as a stopped clock. Foreign starts and real stops retire it; a retained board without a fresh eligible receipt remains blocked. A new receipt can reuse the same numeric fixed-frame clock. A new symbols table followed by every target receipt, stage 1 and its matching clock permits immediate readiness; ambiguous already-open sessions retain the 120 ms stability fallback. The engine clock, initial release and 30 ms hit-window margin still apply.
 
 Search reuses its once-per-second RTT poll. A high sample caps future movement without discarding already-pending commands; a below-250-ms sample restores two only when the pending queue is empty. Missing/invalid ping keeps the existing zero-RTT fallback and 0.8-second timeout floor, with the same empty-queue expansion rule. Local authority keeps two. The 250-ms threshold is a conservative policy, not an engine limit or measured failure boundary. High ping trades throughput for one move per full acknowledgement rather than extrapolating another move from an unconfirmed position. This mitigation does not establish or fix the reported wrong-way cursor root cause; native replay of late movement input remains possible.
 
@@ -45,14 +49,16 @@ Solvers own their state. Rendering does not execute solver actions. Settings and
 
 ## Verification
 
-The offline integration suite passed **173/173 tests**. It uses the actual engine `class.lua` with copied inheritance, engine Lua input/character-state/scoring and RPC implementations, and mocked native services and transport. Run from the workspace root:
+The current speed revision passes **73/73 focused offline LuaJIT tests**, loading Darktide 1.13.0 Lua input, character-state, scoring and RPC implementations with mocked native services and transport. Run from the workspace root:
 
 ```powershell
-& "lua-5.5.0_Win64_bin\lua55.exe" "tools/tests/better_brainer_spec.lua"
+& "tools\luajit\luajit.exe" "mods/active/BetterBrainer/tests/speed_spec.lua"
 powershell -NoProfile -ExecutionPolicy Bypass -File "tools\validate.ps1" -Path "mods\active\BetterBrainer"
 ```
 
-The suite now verifies that the retired setting and module path are absent while preserving the Symbols solve, receipt, ownership, lifecycle and failure-cancel coverage. Canonical validation passes with zero LuaLS diagnostics and syntax checks for all runtime and manifest files; the test file also passes syntax validation. No deployment, live connection or mutation was performed. See `TESTING.md` for the exact historical runtime context and remaining acceptance.
+Coverage includes receipt ordering, stale-board rejection, target-specific scan retry, input release edges and complete zero-mistake solves under simulated receipt delays. The historical 173-test suite describes an earlier revision. See `tests/README.md` for timing comparisons and fixture limits, and `TESTING.md` for static validation and remaining in-game acceptance.
+
+The user tested this speed revision in game and reported that everything works. Exact game build, mission, server role, RTT, settings and lifecycle coverage were not recorded. Release validation checks every packaged Lua/manifest file; the offline harness requires the development workspace and its engine sources. Detailed `TESTING.md` remains local development documentation.
 
 ## Credits
 
