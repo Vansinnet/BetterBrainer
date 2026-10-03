@@ -186,7 +186,7 @@ return function(ctx)
                     settled_at, move_release, last_move_frame = nil, true, sample
                 end
             end
-            press_ready = not resync_until and #pending == 0 and settled_at ~= nil and t > settled_at
+            press_ready = not resync_until and #pending == 0 and settled_at ~= nil
                 and last_move_frame ~= sample and t >= ready_at and t >= submitted_until
                 and t - settled_at >= ctx.pacing("expedition_solve_speed") * 0.646
         end

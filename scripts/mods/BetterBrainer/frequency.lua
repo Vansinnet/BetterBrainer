@@ -67,7 +67,7 @@ return function(ctx)
         local pacing = ctx.pacing("frequency_solve_speed")
         if game ~= mg then
             module.reset("identity")
-            game, ready_at = mg, t + 0.5 + pacing * 0.25
+            game, ready_at = mg, t + pacing * 0.75
         end
         if observed == t then return end
         observed = t
