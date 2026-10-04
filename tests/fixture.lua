@@ -58,7 +58,59 @@ function M.factory()
     end
     local chunk = assert(loadstring(fixture_text .. "\nreturn fixture\n", "@tools/tests/better_brainer_spec.lua"))
     setfenv(chunk, outer)
-    return chunk()
+    local make = chunk()
+    return function(...)
+        local f = make(...)
+        -- DMF debug logging is off by default; tests may replace this to capture lines.
+        f.mod.debug = f.mod.debug or function() end
+        -- Server state of the local unit (player_unit_data_extension.lua:984-991): for each server frame, whether
+        -- that frame ran on its own, timely input. The fixture's server runs client frame n at tick n + 3; a stall
+        -- that substitutes an older frame makes that frame untimely. The state is queued behind the frame's RPCs
+        -- with the normal receipt delay and read through the real hook on `_read_server_unit_data_state`.
+        local STATE = "scripts/extension_systems/unit_data/player_unit_data_extension"
+        local Extension = { _read_server_unit_data_state = function() end }
+        Extension.__index = Extension
+        local session = {}
+        f.env.GameSession = f.env.GameSession or {}
+        f.env.GameSession.game_object_field = function(game_session, _, field) return game_session[field] end
+        f.unit_state = setmetatable({ _player = f.player, _game_session = session, _server_data_state_game_object_id = 1 },
+            Extension)
+        local function hook_state()
+            local callback = f.deferred[STATE]
+            if callback then callback(Extension) end
+        end
+        hook_state()
+        local reload, tick, consume, dispatch = f.reload, f.tick, f.consume, f.dispatch
+        function f:reload(...)
+            local results = M.pack(reload(self, ...))
+            hook_state()
+            return unpack(results, 1, results.n)
+        end
+        -- Deliver one server state now (tests that drive single frames).
+        function f:report_frame(frame, had)
+            session.frame_index, session.had_received_input = frame, had
+            return self.unit_state:_read_server_unit_data_state(self.t)
+        end
+        function f:tick(frame, ...)
+            self.server_frame = frame > 3 and frame - 3 or nil
+            return tick(self, frame, ...)
+        end
+        function f:consume(state, frame, t)
+            local results = M.pack(consume(self, state, frame, t))
+            local server_frame = self.server_frame
+            if state == self.server_state and self.client and server_frame and not self.drop_server_state then
+                self.server_frame = nil
+                self.queue[#self.queue + 1] = { at = (self.transport_t or self.t) + self.delay, to = "client",
+                    name = "server_unit_data_state", args = M.pack(server_frame, frame == server_frame) }
+            end
+            return unpack(results, 1, results.n)
+        end
+        function f:dispatch(to, name, args)
+            if name == "server_unit_data_state" then return self:report_frame(args[1], args[2]) end
+            return dispatch(self, to, name, args)
+        end
+        return f
+    end
 end
 
 function M.deliver(f, name)

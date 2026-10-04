@@ -20,6 +20,43 @@ function ctx.pacing(id)
     return pacing[id]
 end
 
+-- While input frames arrive late, the server keeps running an older input frame (authoritative_player_input_
+-- handler.lua:124-136,153-157: after a miss it can keep the last frame received before the miss even while it
+-- receives and acknowledges later, already-late frames). A direction run that way moves Search or Drill again
+-- after the 0.25 s repeat delay, past a position the client already saw confirmed, and a late press can run
+-- after it. The server's state for this player reports, per simulated frame, whether that frame's own input
+-- had arrived (`had_received_input`, player_unit_data_extension.lua:984-991). Once the server ran its own,
+-- timely input for a frame after `frame`, it can never again run input from `frame` or earlier, and every
+-- minigame RPC from the frames before it was sent before that state. Local authority has no late input.
+-- Returns nil only while no server state at all has been read on this handler (an unexpected engine change).
+function ctx.server_ran_after(mg, frame)
+    if mg._is_server or not frame then return true end
+    if not ctx.state_seen then return nil end
+    local timely = ctx.timely_frame
+    return timely ~= nil and timely > frame
+end
+
+-- No submission while the server could still run a direction frame. Without any server state on this handler
+-- (an unexpected engine change), wait one second after the last direction instead.
+function ctx.movement_settled(mg, t)
+    local frame = ctx.moved_frame
+    if not frame or mg._is_server then return true end
+    if ctx.state_seen then return ctx.timely_frame ~= nil and ctx.timely_frame > frame end
+    return t ~= nil and ctx.moved_t ~= nil and t >= ctx.moved_t + 1
+end
+
+local MOVEMENT = { move = true, move_left = true, move_right = true, move_forward = true, move_backward = true }
+
+-- Record the newest fixed input frame that serialized any direction (ours or the player's).
+local function track_movement(action, value)
+    if MOVEMENT[action] and not sampling_ephemeral and value then
+        local moving
+        if type(value) == "number" then moving = value ~= 0 else moving = value.x ~= 0 or value.y ~= 0 end
+        if moving then ctx.moved_frame, ctx.moved_t = ctx.input_frame, sampling_time end
+    end
+    return value
+end
+
 function ctx.pulse(state, ready)
     local frame = ctx.input_frame
     if not frame then return false end
@@ -86,6 +123,7 @@ local function reset(reason)
     ctx.active_minigame = nil
     fast_exit_sent = nil
     ctx.input_frame = nil
+    ctx.input_handler, ctx.state_seen, ctx.timely_frame, ctx.moved_frame, ctx.moved_t = nil, nil, nil, nil, nil
     sampling_service, sampling_time, sampling_ephemeral = nil, nil, nil
     local_state, active, observed_at = nil, nil, nil
     for i = 1, #modules do modules[i].reset(reason) end
@@ -167,9 +205,31 @@ mod:hook_require("scripts/managers/player/player_game_states/human_input_handler
         if not ctx.is_local_player(self._player) then
             return func(self, dt, t, frame, input_service, yaw, pitch, roll)
         end
+        if ctx.input_handler ~= self then
+            -- Frame numbers and the server's input bookkeeping belong to one handler (one game session).
+            ctx.input_handler, ctx.state_seen, ctx.timely_frame, ctx.moved_frame, ctx.moved_t = self, nil, nil, nil, nil
+        end
         ctx.input_frame = frame
         sampling_service, sampling_time, sampling_ephemeral = input_service, t, false
         return finish_sample(func(self, dt, t, frame, input_service, yaw, pitch, roll))
+    end)
+end)
+
+local function read_state(session, id)
+    return GameSession.game_object_field(session, id, "frame_index"),
+        GameSession.game_object_field(session, id, "had_received_input")
+end
+
+mod:hook_require("scripts/extension_systems/unit_data/player_unit_data_extension", function(Extension)
+    -- Client pre_update reads the newest server state of the local player's unit (one per server tick).
+    mod:hook_safe(Extension, "_read_server_unit_data_state", function(self, t)
+        local session, id = self._game_session, self._server_data_state_game_object_id
+        if not session or not id or not ctx.input_handler or not ctx.is_local_player(self._player) then return end
+        -- `had_received_input` comes from the player's input handler, which outlives a respawned unit.
+        local ok, frame, had = pcall(read_state, session, id)
+        if not ok or type(frame) ~= "number" or type(had) ~= "boolean" then return end
+        ctx.state_seen = true
+        if had and frame > (ctx.timely_frame or -math.huge) then ctx.timely_frame = frame end
     end)
 end)
 
@@ -181,9 +241,7 @@ local relevant = {
 }
 local scan_actions = { action_one_pressed = true, action_one_hold = true, action_one_released = true }
 
-mod:hook(CLASS.InputService, "_get", function(func, self, action)
-    local original = func(self, action)
-    if self ~= sampling_service or self.type ~= "Ingame" or not relevant[action] then return original end
+local function solve_input(action, original)
     local scanning = settings.enable_auto_scan and scan_actions[action]
     if not active and not scanning then return original end
     local t = sampling_time
@@ -214,6 +272,13 @@ mod:hook(CLASS.InputService, "_get", function(func, self, action)
     end
     if scanning then return scan.input(action, original, t, "input_service") end
     return original
+end
+
+mod:hook(CLASS.InputService, "_get", function(func, self, action)
+    local original = func(self, action)
+    if self ~= sampling_service or self.type ~= "Ingame" or not relevant[action] then return original end
+    -- Every serialized direction counts, ours or the player's, in or out of a minigame session.
+    return track_movement(action, solve_input(action, original))
 end)
 
 mod.update = function(dt)

@@ -50,6 +50,9 @@ for _, speed in ipairs({ 1, 3, 5 }) do
     end)
 end
 
+-- Server state: the server ran frame `frame` on its own input (see BetterBrainer.lua movement_settled).
+local function input_ack(f, frame) f:report_frame(frame, true) end
+
 local function search_case(speed, x, y)
     local f = fixture({ expedition_solve_speed = speed })
     f:open("decode_search", true, 10)
@@ -77,6 +80,7 @@ test("Search full diagonal ACK presses on first settled sample at speed 5", func
     eq(step(f, 3, origin + 0.06).action_one_hold, false, "partial diagonal must not press")
     deliver(f, "rpc_minigame_sync_decode_search_set_cursor")
     eq(f.client:is_on_target(), true)
+    if not baseline then input_ack(f, 3) end
     local ready = step(f, 4, origin + 0.08)
     eq(ready.action_one_hold, not baseline, "first fully confirmed sample")
     local next_sample = step(f, 5, origin + 0.10)
@@ -168,8 +172,16 @@ test("Search movement-frame ACK cannot change the serialized press decision", fu
     f.modules.search.observe(f.client, 10.041)
     eq(f.modules.search.input("action_one_hold", false, 10.041, "input_service"), false,
         "same input frame remains movement-only after immediate full ACK")
-    eq(step(f, 3, 10.06).action_one_hold, true, "next frame can press")
-    eq(step(f, 4, 10.08).action_one_hold, false, "next frame releases")
+    if baseline then
+        eq(step(f, 3, 10.06).action_one_hold, true, "next frame can press")
+        eq(step(f, 4, 10.08).action_one_hold, false, "next frame releases")
+    else
+        input_ack(f, 2)
+        eq(step(f, 3, 10.06).action_one_hold, false, "the movement frame itself running timely is not enough")
+        input_ack(f, 3)
+        eq(step(f, 4, 10.08).action_one_hold, true, "a later frame ran timely: press")
+        eq(step(f, 5, 10.10).action_one_hold, false, "next frame releases")
+    end
 end)
 
 test("Search speed 1 retains ready_at and settled pacing", function()
@@ -193,6 +205,7 @@ test("Search slower-speed full ACK retains movement ready_at", function()
     deliver(f, "rpc_minigame_sync_decode_search_set_cursor")
     deliver(f, "rpc_minigame_sync_decode_search_set_cursor")
     eq(step(f, 3, 10.26).action_one_hold, false)
+    if not baseline then input_ack(f, 3) end
     eq(step(f, 4, 10.60).action_one_hold, false, "settled pacing elapsed, movement pacing has not")
     eq(step(f, 5, 10.786).action_one_hold, false)
     eq(step(f, 6, 10.788).action_one_hold, true)
