@@ -124,3 +124,33 @@ Last runs:
 Both harness files load and execute in LuaJIT. Canonical changed-runtime
 validation is recorded in `../TESTING.md`; normal runtime validation excludes
 this tests directory. No live game access occurred.
+
+## Drill checks (`drill_spec.lua`)
+
+```powershell
+& tools\luajit\luajit.exe mods\active\BetterBrainer\tests\drill_spec.lua
+& tools\luajit\luajit.exe mods\active\BetterBrainer\tests\drill_spec.lua --baseline
+```
+
+The default run is the acceptance check for the Drill aim planner and transition hold. `--baseline` relaxes the new-behaviour assertions so the same file can run against an older `drill.lua` for comparison; it expects the old origin-node stall.
+
+Boards come from the real `MinigameDrill:generate_targets` with the fixture RNG and chosen seeds (`MinigameDrill.init` is wrapped only to change the seed). Ground truth for "one direction can reach the node" comes from calling the native `on_axis_set` on a scratch server instance over 0.1-degree steps. Every move the server accepts is recorded, including moves that select nothing. The tests simulate a late server resume by moving the server's `_transition_start_time`, replay the last received input frame on the server (as `authoritative_player_input_handler.lua:153-156` does for late input), delay chosen RPCs in the queued transport (optionally in order), quantize `Network.pack_unpack` to 1/127, start without `Network.type_index` to force direct aim, change the native distance weight after load, and rotate the server's aim to model a joystick error the planner cannot see.
+
+Input stalls replay the last frame the server consumed for 12 or 20 frames from a chosen frame after the first stage-2 gameplay frame; the check requires zero mistakes and a solve (no exit). A further check drops all server state.
+
+Last results (2026-10-04, Linux LuaJIT 2.1.1788856981, source 1.13.0): **36 passed, 0 failed**, about 130 seconds. With `--baseline` against the 1.0.2 `drill.lua`: the earlier checks pass with baseline expectations (it reports 9 of 37 stalls under replayed input); the version before the server-state gate and retry exits on 20 and 16 of 80 stalled boards. Timing comparisons are in `../TESTING.md`. These are offline fixture results, not live measurements.
+
+## Search pre-send checks (`search_spec.lua`)
+
+```powershell
+& tools\luajit\luajit.exe mods\active\BetterBrainer\tests\search_spec.lua
+& tools\luajit\luajit.exe mods\active\BetterBrainer\tests\search_spec.lua --baseline
+```
+
+Boards come from the real `MinigameDecodeSearch:generate_board` with the fixture RNG (`init` is wrapped only to change the seed). The tests record stage-advancing presses and cursor moves on the native server, delay the server's resume by moving `_state_start_time`, replay the last received input frame on the server, delay cursor receipts (optionally in order), drop one press, reopen the same terminal mid-stage with the cursor off-centre (plain, after a settings change, and on the target with receipts stalled 1 s), stall input for 12 or 20 frames from each of the first six frames after a stage-2 step at 50/165/300 ms receipts, drop all server state, and run on a local server and at speed 3.
+
+Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. With `--baseline`, the stall check at 300 ms reports a mistake on 6 of 120 boards for the 1.0.2 `search.lua` and 20 of 120 for the pre-send without the gate; that version also fails the settings and stalled-receipt reopen checks. `fixture.lua` gives each fixture a no-op `mod:debug` that tests may replace to capture DMF debug lines.
+
+## Server input state in the fixture
+
+`fixture.lua` models the server's per-tick `server_unit_data_state` (`player_unit_data_extension.lua:984-991`): the fixture's server runs client frame n in tick n + 3, and reports frame n with `had_received_input = true` unless a test substituted older input for it. The state is queued to the client behind the RPCs of that frame with the normal receipt delay and read through the mod's real hook on a stub `PlayerUnitDataExtension._read_server_unit_data_state` (`f:report_frame(frame, had)` delivers one by hand; `speed_spec.lua` uses it where it drives single frames; `f.drop_server_state = true` drops every state). The real server reports once per tick, usually a frame or more after the input arrived, so the fixture's wait is close to the real one. The fixture cannot reorder state ahead of RPCs; that remaining assumption is described in `../TESTING.md`.
