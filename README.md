@@ -1,6 +1,6 @@
 # BetterBrainer
 
-Current release: **1.0.3**.
+Current release: **1.0.4**.
 
 A standalone DMF mod for Darktide minigame assistance. This is a new implementation, not a dependency or extension of NoBrainer.
 
@@ -57,12 +57,15 @@ The current speed revision passes **73/73 focused offline LuaJIT tests**, loadin
 
 ```powershell
 & "tools\luajit\luajit.exe" "mods/active/BetterBrainer/tests/speed_spec.lua"
+& "tools\luajit\luajit.exe" "mods/active/BetterBrainer/tests/scan_marker_spec.lua"
 & "tools\luajit\luajit.exe" "mods/active/BetterBrainer/tests/drill_spec.lua"
 & "tools\luajit\luajit.exe" "mods/active/BetterBrainer/tests/search_spec.lua"
 powershell -NoProfile -ExecutionPolicy Bypass -File "tools\validate.ps1" -Path "mods\active\BetterBrainer"
 ```
 
 Coverage includes receipt ordering, stale-board rejection, target-specific scan retry, input release edges and complete zero-mistake solves under simulated receipt delays. The Drill suite (36 checks) compares every move with the native selection, and covers late server resumes, replayed late input, delayed or late receipts, high ping, origin nodes, deliberately wrong selection and joystick models with latency spikes, input stalls with lost moves, and local-server play. The Search suite (21 checks) covers the pre-send timing, late resumes, replayed late input, input stalls at up to 300 ms receipts, late receipts, a dropped press, reopening mid-solve (also after a settings change and with stalled receipts), missing server state, local-server play and speed 3. Both suites model the server's per-frame input state. Drill and Search write diagnostic lines through DMF debug logging, which is off by default (DMF options: Logging mode Custom, Debug output Log). The historical 173-test suite describes an earlier revision. See `tests/README.md` for timing comparisons and fixture limits, and `TESTING.md` for static validation and remaining in-game acceptance.
+
+Scan highlight release passes **4/4 offline LuaJIT checks**: active objects stay highlighted, deactivation releases markers immediately, the game's requested outlines are restored, and reactivated objects are highlighted on the next refresh. This change still needs in-game confirmation on a regular dedicated-server client and a local host.
 
 User-reported remote-mission tests at speed 5 confirmed Drill's planned holds and Search's pre-send and recentre fix. The latest server-input-state gate and Drill lost-move retry still need in-game confirmation; exact game build, mission, RTT and complete lifecycle coverage were not recorded. Release validation checks every packaged Lua/manifest file; the offline harness requires the development workspace and its engine sources. Detailed `TESTING.md` remains local development documentation.
 
