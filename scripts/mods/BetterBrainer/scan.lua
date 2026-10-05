@@ -211,6 +211,14 @@ return function(ctx)
     end)
 
     ctx.mod:hook_require("scripts/extension_systems/mission_objective_zone_scannable/mission_objective_zone_scannable_extension", function(class)
+        -- The server deactivates a scannable once it banked the scan (mission_objective_zone_scan_extension.lua:108-109);
+        -- clients get the same call from rpc_mission_objective_zone_scannable_set_active. Release the marker right
+        -- then: never on the client's predicted confirm, never a refresh interval later.
+        ctx.mod:hook_safe(class, "set_active", function(self, active)
+            if not active and marked[self._unit] then
+                release_marker(self._unit, self)
+            end
+        end)
         ctx.mod:hook(class, "set_scanning_outline", function(func, self, active)
             local requested = marked[self._unit]
             if requested then
