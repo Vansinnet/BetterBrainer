@@ -56,6 +56,8 @@ the tests. The adapter's only fixture-text substitutions correct `atan2` and
 
 ## Coverage
 
+`scan_marker_spec.lua` (4 cases) checks the Scan highlight markers on the same scan fixture with an outline-recording stub: they survive the game's own outline removals while the object is active, and are released as soon as the object is deactivated (the server's banked scan) instead of at the next one-second refresh. Last run (2026-10-05): 4/4; 1.0.3 fails 3.
+
 `speed_spec.lua` runs 73 focused cases:
 
 - **Frequency:** speeds 1/3/5 opening timing; missing initial stage/target;
