@@ -1,0 +1,149 @@
+# Publishes the exact ZIP attached to a GitHub Release to Nexus Mods.
+# Template: tools/github/nexus-release.yml -> <mod repo>/.github/workflows/nexus-release.yml
+# Generated for this mod; edit the template and regenerate rather than this copy.
+# Repository secret NEXUSMODS_APIKEY holds the personal Nexus API key.
+# Optional: give the "nexus" environment a required reviewer to approve each upload.
+
+name: Publish to Nexus Mods
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish again, e.g. v1.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  MOD_NAME: "BetterBrainer"
+  NEXUS_MOD_ID: "1282"
+
+jobs:
+  nexus:
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    environment: nexus
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Read GitHub release
+        id: release
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag must be vX.Y.Z: $TAG" >&2; exit 1; }
+
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease,isDraft,body > release.json
+          jq -e '.isPrerelease == false and .isDraft == false' release.json > /dev/null \
+            || { echo "Drafts and prereleases stay on GitHub only." >&2; exit 1; }
+          jq -r .body release.json > body.md
+
+          # The user-facing "## Changes" section becomes the Nexus changelog.
+          awk '/^## /{ p = ($0 ~ /^## Changes[[:space:]]*$/); next } p' body.md \
+            | sed '/^[[:space:]]*$/d' > changelog.md
+          [ -s changelog.md ] || { echo 'Release notes need a non-empty "## Changes" section.' >&2; exit 1; }
+
+          {
+            echo "version=${TAG#v}"
+            echo "changelog<<CHANGELOG_EOF"
+            cat changelog.md
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the release ZIP
+        id: zip
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          for attempt in 1 2 3 4 5; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.zip' --dir dist --clobber && break
+            [ "$attempt" -lt 5 ] || { echo "Release ZIP not available." >&2; exit 1; }
+            sleep 10
+          done
+
+          mapfile -t zips < <(find dist -maxdepth 1 -type f -name '*.zip')
+          [ "${#zips[@]}" -eq 1 ] || { echo "Expected exactly one ZIP asset, found ${#zips[@]}." >&2; exit 1; }
+          zip_path="${zips[0]}"
+
+          mapfile -t expected < <(grep -oiE '\b[0-9a-f]{64}\b' body.md | tr 'A-F' 'a-f' | sort -u)
+          [ "${#expected[@]}" -eq 1 ] || { echo "Release notes must state exactly one SHA-256." >&2; exit 1; }
+          actual="$(sha256sum "$zip_path" | cut -d' ' -f1)"
+          [ "$actual" = "${expected[0]}" ] || { echo "SHA-256 mismatch: asset $actual, notes ${expected[0]}" >&2; exit 1; }
+
+          unzip -Z1 "$zip_path" > entries.txt
+          cat entries.txt
+          ! grep -q '\\' entries.txt || { echo "ZIP entry uses a backslash." >&2; exit 1; }
+          ! grep -v "^$MOD_NAME/" entries.txt || { echo "ZIP entry outside $MOD_NAME/." >&2; exit 1; }
+          grep -qxF "$MOD_NAME/$MOD_NAME.mod" entries.txt || { echo "Missing $MOD_NAME/$MOD_NAME.mod." >&2; exit 1; }
+
+          upload_name="${MOD_NAME// /-}-$VERSION.zip"
+          cp "$zip_path" "$upload_name"
+          echo "Verified $upload_name SHA-256 $actual"
+          echo "filename=$upload_name" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Nexus ids
+        id: nexus
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUSMODS_APIKEY }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          : "${NEXUS_API_KEY:?Set repository secret NEXUSMODS_APIKEY}"
+
+          query="$(jq -nc --arg m "$NEXUS_MOD_ID" \
+            '{query: ("query{modFiles(modId:\"" + $m + "\",gameId:\"4943\"){category groupId version name}}")}')"
+          curl -sSf -H "apikey: $NEXUS_API_KEY" -H "content-type: application/json" \
+            -X POST "https://api.nexusmods.com/v2/graphql" -d "$query" > files.json
+          jq -e '(.errors // []) | length == 0' files.json > /dev/null \
+            || { jq '.errors' files.json >&2; exit 1; }
+
+          if jq -e --arg v "$VERSION" '[.data.modFiles[] | select(.version == $v)] | length > 0' files.json > /dev/null; then
+            echo "::notice::$MOD_NAME $VERSION is already on Nexus; nothing to upload."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The current file is the single MAIN entry; "primary" can point at an archived file.
+          jq -c '[.data.modFiles[] | select(.category == "MAIN")] | unique_by(.groupId)' files.json > main.json
+          [ "$(jq length main.json)" -eq 1 ] \
+            || { echo "Expected exactly one MAIN file group on Nexus:" >&2; jq . main.json >&2; exit 1; }
+          file_id="$(jq -r '.[0].groupId' main.json)"
+          file_name="$(jq -r '.[0].name' main.json)"
+
+          mod_id="$(curl -sSf -H "apikey: $NEXUS_API_KEY" \
+            "https://api.nexusmods.com/v3/games/warhammer40kdarktide/mods/$NEXUS_MOD_ID" | jq -r '.data.id')"
+          [ -n "$mod_id" ] && [ "$mod_id" != "null" ] || { echo "No global Nexus mod id." >&2; exit 1; }
+
+          echo "Nexus file group $file_id ($file_name), global mod id $mod_id"
+          {
+            echo "skip=false"
+            echo "file_id=$file_id"
+            echo "file_name=$file_name"
+            echo "mod_id=$mod_id"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Nexus Mods
+        if: ${{ steps.nexus.outputs.skip != 'true' }}
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_APIKEY }}
+          file_id: ${{ steps.nexus.outputs.file_id }}
+          mod_id: ${{ steps.nexus.outputs.mod_id }}
+          filename: ${{ steps.zip.outputs.filename }}
+          version: ${{ steps.release.outputs.version }}
+          display_name: ${{ steps.nexus.outputs.file_name }}
+          category: main
+          description: ${{ env.MOD_NAME }} ${{ steps.release.outputs.version }}. Extract into Darktide's mods folder; requires Darktide Mod Framework.
+          changelog: ${{ steps.release.outputs.changelog }}
+          update_mod_version: true
