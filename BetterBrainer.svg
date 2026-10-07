@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">BetterBrainer emblem</title>
+  <desc id="description">A stylized cybernetic brain inside an auspex targeting reticle.</desc>
+  <defs>
+    <radialGradient id="background" cx="50%" cy="42%" r="72%">
+      <stop offset="0" stop-color="#263237"/>
+      <stop offset="0.58" stop-color="#11181b"/>
+      <stop offset="1" stop-color="#080b0d"/>
+    </radialGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d4d0bd"/>
+      <stop offset="0.48" stop-color="#767d78"/>
+      <stop offset="1" stop-color="#353d3d"/>
+    </linearGradient>
+    <linearGradient id="brain" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#d8e6b5"/>
+      <stop offset="0.52" stop-color="#9fb36f"/>
+      <stop offset="1" stop-color="#53633d"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#000" flood-opacity="0.8"/>
+    </filter>
+    <clipPath id="disc"><circle cx="512" cy="512" r="462"/></clipPath>
+  </defs>
+
+  <circle cx="512" cy="512" r="492" fill="#070a0b"/>
+  <circle cx="512" cy="512" r="470" fill="url(#background)" stroke="#788074" stroke-width="10"/>
+
+  <g clip-path="url(#disc)" opacity="0.18" stroke="#90a06c" stroke-width="3">
+    <path d="M-20 186H1044M-20 326H1044M-20 698H1044M-20 838H1044"/>
+    <path d="M186-20V1044M326-20V1044M698-20V1044M838-20V1044"/>
+    <path d="M54 884L884 54M140 1010L1010 140"/>
+  </g>
+
+  <g fill="none" stroke="url(#steel)">
+    <circle cx="512" cy="512" r="396" stroke-width="17" stroke-dasharray="118 32 18 32"/>
+    <circle cx="512" cy="512" r="345" stroke-width="5" opacity="0.7" stroke-dasharray="8 16"/>
+  </g>
+
+  <g stroke="#b6c77a" stroke-width="18" stroke-linecap="square" filter="url(#glow)">
+    <path d="M512 86v92M512 846v92M86 512h92M846 512h92"/>
+  </g>
+
+  <g fill="#111718" stroke="#858b80" stroke-width="8" filter="url(#shadow)">
+    <path d="M221 300l51-78 55 35-50 79z"/>
+    <path d="M803 300l-51-78-55 35 50 79z"/>
+    <path d="M221 724l51 78 55-35-50-79z"/>
+    <path d="M803 724l-51 78-55-35 50-79z"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M500 327c-28-49-105-54-141-12-46-5-82 37-72 81-43 26-49 86-16 121-28 47 3 107 54 116 9 54 75 79 118 44 17 14 36 22 57 24z" fill="url(#brain)" stroke="#d2dbb0" stroke-width="13" stroke-linejoin="round"/>
+    <path d="M524 327c28-49 105-54 141-12 46-5 82 37 72 81 43 26 49 86 16 121 28 47-3 107-54 116-9 54-75 79-118 44-17 14-36 22-57 24z" fill="url(#brain)" stroke="#d2dbb0" stroke-width="13" stroke-linejoin="round"/>
+    <path d="M512 326v380" stroke="#293124" stroke-width="15"/>
+  </g>
+
+  <g fill="none" stroke="#354329" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M454 361c-58-12-88 29-77 73-43 4-61 48-38 80M431 437c45 14 45 67 11 87-29 17-30 59-8 83M365 563c27-22 65-10 78 18M372 429c-25-13-52-6-69 12"/>
+    <path d="M570 361c58-12 88 29 77 73 43 4 61 48 38 80M593 437c-45 14-45 67-11 87 29 17 30 59 8 83M659 563c-27-22-65-10-78 18M652 429c25-13 52-6 69 12"/>
+  </g>
+
+  <g fill="none" stroke="#d5e882" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M304 596h52l32-35M720 596h-52l-32-35"/>
+    <path d="M341 373h54l29 29M683 373h-54l-29 29"/>
+    <path d="M390 673v-40l36-35M634 673v-40l-36-35"/>
+  </g>
+  <g fill="#efffb0" stroke="#192018" stroke-width="7">
+    <circle cx="304" cy="596" r="14"/><circle cx="720" cy="596" r="14"/>
+    <circle cx="341" cy="373" r="14"/><circle cx="683" cy="373" r="14"/>
+    <circle cx="390" cy="673" r="14"/><circle cx="634" cy="673" r="14"/>
+  </g>
+
+  <g fill="none" stroke="#efffa5" filter="url(#glow)">
+    <circle cx="512" cy="512" r="86" stroke-width="8" stroke-dasharray="20 13"/>
+    <path d="M512 405v58M512 561v58M405 512h58M561 512h58" stroke-width="10"/>
+  </g>
+  <circle cx="512" cy="512" r="16" fill="#f1ffb0" filter="url(#glow)"/>
+
+  <g aria-label="BetterBrainer">
+    <path d="M265 796h494" stroke="#111617" stroke-width="70" stroke-linecap="round" opacity="0.9"/>
+    <text x="512" y="816" text-anchor="middle" fill="#d8dec8" font-family="Bahnschrift, Rajdhani, sans-serif" font-size="58" font-weight="700" letter-spacing="4">BETTERBRAINER</text>
+    <path d="M314 837h396" stroke="#a9ba70" stroke-width="5"/>
+  </g>
+</svg>
