@@ -1,5 +1,11 @@
 -- Adapt the historical fixture only; never execute its legacy test suite.
-local M = { source = "darktide-source/Darktide-Source-Code-1.13.0/" }
+local M = { source = "darktide-source/" }
+do -- Patch for the spec banners; darktide-source/ is a git clone of the game source.
+    local ok, pipe = pcall(io.popen, "git -C darktide-source log -1 --format=%s")
+    local line = ok and pipe and pipe:read("*l")
+    if ok and pipe then pipe:close() end
+    FIXTURE_SOURCE_VERSION = line and line:match("Version ([%d%.]+)") or "unknown"
+end
 local ROOT = "mods/active/BetterBrainer/scripts/mods/BetterBrainer/"
 
 function M.read(path)

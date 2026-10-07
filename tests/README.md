@@ -17,7 +17,7 @@ Pre-edit baseline command:
 
 `fixture.lua` reuses the fixture portion (original lines
 1–438) of `tools/tests/better_brainer_spec.lua`, without running its legacy suite.
-It pins source loading to `darktide-source/Darktide-Source-Code-1.13.0/`, supplies
+It pins source loading to `darktide-source/` (a git clone of the game source; `git -C darktide-source log -1` shows the patch), supplies
 LuaJIT `table.pack`/`table.unpack`, preserves the real two-argument `math.atan2`,
 and updates the lag-compensation stub to `rewind_seconds` (seconds).
 
