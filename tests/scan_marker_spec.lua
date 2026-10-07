@@ -12,7 +12,7 @@ local function test(name, body)
     else failed = failed + 1; print("FAIL " .. name .. "\n" .. err) end
 end
 
-print("BetterBrainer scan marker tests | " .. jit.version .. " | source 1.13.0")
+print("BetterBrainer scan marker tests | " .. jit.version .. " | source " .. (FIXTURE_SOURCE_VERSION or "darktide-source") .. "")
 
 -- The scan fixture with highlighting on, an outline system that records outlines per unit, and a scanning zone
 -- holding both scannables.

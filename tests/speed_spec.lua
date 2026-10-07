@@ -18,7 +18,7 @@ local function step(f, frame, t, consume)
     return sample
 end
 
-print("BetterBrainer focused speed tests | " .. jit.version .. " | source 1.13.0 | "
+print("BetterBrainer focused speed tests | " .. jit.version .. " | source " .. (FIXTURE_SOURCE_VERSION or "darktide-source") .. " | "
     .. (baseline and "BASELINE expectations" or "CURRENT runtime"))
 
 test("fixture uses LuaJIT quadrant-aware atan2, vararg arity and seconds clock", function()
