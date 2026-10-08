@@ -1,4 +1,5 @@
 # Publishes the exact ZIP attached to a GitHub Release to Nexus Mods.
+# Runs on a published release, by hand (workflow_dispatch), or from release.yml after a tag push.
 # Template: tools/github/nexus-release.yml -> <mod repo>/.github/workflows/nexus-release.yml
 # Generated for this mod; edit the template and regenerate rather than this copy.
 # Repository secret NEXUSMODS_APIKEY holds the personal Nexus API key.
@@ -15,6 +16,15 @@ on:
         description: Existing GitHub release tag to publish again, e.g. v1.2.0
         required: true
         type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: GitHub release tag created by the release workflow
+        required: true
+        type: string
+    secrets:
+      NEXUSMODS_APIKEY:
+        required: true
 
 permissions:
   contents: read
@@ -29,7 +39,7 @@ env:
 
 jobs:
   nexus:
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     environment: nexus
     env:
