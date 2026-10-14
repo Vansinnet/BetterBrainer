@@ -15,7 +15,8 @@ Latest revision: **17/17 reopen checks**, **36/36 Drill checks**, **21/21 Search
   - Unchanged suites: `speed_spec` 73/73, `search_spec` 21/21, `drill_spec` 36/36, `scan_marker_spec` 4/4.
   - `tools\validate.ps1`: 0 LuaLS diagnostics, LuaJIT load passed.
   - Windows LuaJIT 2.1.1703358377, source 1.13.1.
-- **In game (pending):** client on a dedicated server; DMF logging mode Custom, Debug output Log, so the `Reopen:`, `Search reopen`, `Symbols` and `Frequency` lines appear in the log.
+- **In game, 2026-10-14 (user):** Symbols reroll works well (user report; exact build, mission, ping and reroll counts not recorded).
+- **In game (pending, Search and Frequency):** client on a dedicated server; DMF logging mode Custom, Debug output Log, so the `Reopen:`, `Search reopen`, `Symbols` and `Frequency` lines appear in the log.
   1. Expedition or watertown/tank foundry Search terminal at expedition speed 5. Expected:
      - after the stage 1 and 2 presses, the auspex closes and reopens at once and the cursor starts in the centre;
      - the next stage begins without the transition pause;
