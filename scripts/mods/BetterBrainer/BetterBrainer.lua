@@ -5,6 +5,9 @@ local ctx = { mod = mod, settings = settings }
 local local_state, active, observed_at
 local sampling_service, sampling_time, sampling_ephemeral
 local fast_exit_sent
+-- A solver may close and reopen its terminal (DESIGN.md, Reopen controller).
+local REOPEN_GAP, REOPEN_TIMEOUT = 0.15, 1
+local reopen, reopen_off, session_t, resumed_t
 
 function ctx.time()
     local time = Managers.time
@@ -112,11 +115,30 @@ local solvers = {
 }
 
 local function end_session(reason)
+    -- An unsolved session that ends right after a resume was most likely rolled back: the server refused the entry.
+    local t, mg = ctx.time(), ctx.active_minigame
+    if resumed_t and t and t - resumed_t < REOPEN_TIMEOUT and not (mg and mg:is_completed()) then
+        reopen_off = true
+        mod:debug("Reopen: session ended %.3fs after the resume, reopening switched off", t - resumed_t)
+    end
+    resumed_t = nil
     ctx.active_minigame = nil
     fast_exit_sent = nil
     local_state, observed_at = nil, nil
     if active then active.reset(reason) end
     active = nil
+end
+
+local function abort_reopen(reason)
+    local pending = reopen
+    reopen, reopen_off = nil, true
+    mod:debug("Reopen: %s in phase %s, reopening switched off until the next mission", reason, pending.phase)
+    if active == pending.module then
+        -- Still in the old session: the solver carries on there.
+        if pending.module.reopen_failed then pending.module.reopen_failed() end
+    else
+        pending.module.reset("session_end")
+    end
 end
 
 local function reset(reason)
@@ -126,6 +148,7 @@ local function reset(reason)
     ctx.input_handler, ctx.state_seen, ctx.timely_frame, ctx.moved_frame, ctx.moved_t = nil, nil, nil, nil, nil
     sampling_service, sampling_time, sampling_ephemeral = nil, nil, nil
     local_state, active, observed_at = nil, nil, nil
+    reopen, reopen_off, session_t, resumed_t = nil, nil, nil, nil
     for i = 1, #modules do modules[i].reset(reason) end
 end
 
@@ -139,10 +162,90 @@ local function select_session(state)
     end
     if ctx.active_minigame ~= mg then
         if active then end_session("session_changed") end
+        local t = ctx.time()
+        if reopen and reopen.mg == mg and reopen.module == solver then
+            -- The entry we asked for: resume the suspended solver instead of starting fresh.
+            mod:debug("Reopen: resumed %.3fs after the request", t and t - reopen.t or -1)
+            reopen = nil
+            ctx.active_minigame, active, observed_at, local_state = mg, solver, nil, state
+            session_t, resumed_t, fast_exit_sent = t, t, nil
+            solver.resume(mg, t)
+            return
+        end
+        if reopen then abort_reopen("another session started") end
         ctx.active_minigame, active, observed_at = mg, solver, nil
-        fast_exit_sent = nil
+        session_t, fast_exit_sent = t, nil
     end
     local_state = state
+end
+
+-- The terminal can be reopened when it is a decoder (`decoding`, duration 0, interaction_templates.lua:36-43) and the
+-- interactor already sees it. During the minigame it is only a focus target: interaction_allowed() is false while the
+-- minigame is active (decoder_device_extension.lua:292-305, interactor_extension.lua:448-488,567-588).
+function ctx.reopen_ready(mg)
+    if reopen or reopen_off or not mg or mg ~= ctx.active_minigame or not local_state then return false end
+    local terminal, unit = mg._minigame_unit, local_state._unit
+    if not terminal or not Unit.alive(terminal) or not unit or not Unit.alive(unit) then return false end
+    local interactee = ScriptUnit.has_extension(terminal, "interactee_system")
+    if not interactee or interactee:interaction_type() ~= "decoding"
+        or not ScriptUnit.has_extension(terminal, "decoder_device_system") then return false end
+    local interactor = ScriptUnit.has_extension(unit, "interactor_system")
+    if not interactor or not interactor._find_interaction_object or interactor:is_interacting() then return false end
+    local chosen, _, focus = interactor:_find_interaction_object(unit)
+    return chosen == terminal or focus == terminal
+end
+
+-- Cancel, then interact again once allowed. The server runs both frames in order and its setup_game precedes the
+-- new entry frame's input (player_character_state_minigame.lua:138-148), so nothing waits for a receipt.
+function ctx.request_reopen(mg)
+    local t = ctx.time()
+    if not t or not ctx.reopen_ready(mg) then return false end
+    reopen = { mg = mg, terminal = mg._minigame_unit, module = active, phase = "cancel", t = t,
+        allow_t = (session_t or t) + REOPEN_GAP }
+    mod:debug("Reopen: requested at %.3f", t)
+    return true
+end
+
+local function can_reinteract(pending, t)
+    if t < pending.allow_t or not Unit.alive(pending.terminal) then return false end
+    local players = Managers.player
+    local player = players and players:local_player_safe(1)
+    local unit = player and player.player_unit
+    if not unit or not Unit.alive(unit) then return false end
+    local csm = ScriptUnit.has_extension(unit, "character_state_machine_system")
+    local state = csm and csm:current_state_name()
+    if state ~= "walking" and state ~= "sprinting" then return false end
+    local interactor = ScriptUnit.has_extension(unit, "interactor_system")
+    if not interactor or interactor:is_interacting() then return false end
+    -- The interactor picks its target in the same fixed frame that reads the press (interactor_extension.lua:160-244).
+    return interactor:_find_interaction_object(unit) == pending.terminal
+        and interactor:can_interact(pending.terminal, "decoding")
+end
+
+local NEUTRAL_MOVE = { move = true, move_left = true, move_right = true, move_forward = true, move_backward = true }
+
+-- Ephemeral cancel and interact for a pending reopen; every other routed action stays neutral meanwhile.
+local function reopen_input(action, original, t)
+    local pending = reopen
+    if pending.phase == "cancel" then
+        -- The solver still owns the session until the cancel is sampled.
+        if action ~= "action_two_pressed" or not sampling_ephemeral then return nil end
+        pending.phase = "cancel_sent"
+        return true
+    end
+    if action == "interact_pressed" then
+        if not sampling_ephemeral then return original end
+        if pending.phase == "interact_sent" and t >= pending.interact_t + 0.1 then pending.phase = "exited" end
+        if pending.phase == "exited" and can_reinteract(pending, t) then
+            pending.phase, pending.interact_t = "interact_sent", t
+            mod:debug("Reopen: interact at %.3f", t)
+            return true
+        end
+        return false
+    end
+    if action == "move" then return Vector3(0, 0, 0) end
+    if NEUTRAL_MOVE[action] then return 0 end
+    return false
 end
 
 -- Passing a minigame also requires current CSM identity on the normal explicit-owner path.
@@ -183,7 +286,14 @@ mod:hook_require("scripts/extension_systems/character_state_machine/character_st
         return func(self, t, fixed_frame, input_extension)
     end)
     mod:hook_safe(State, "on_exit", function(self, unit, t, next_state)
-        if self == local_state then end_session("session_end") end
+        if self ~= local_state then return end
+        if reopen and reopen.module == active and reopen.mg == ctx.active_minigame then
+            -- Our own exit: keep the solver's state for the new session of the same minigame.
+            reopen.phase = "exited"
+            ctx.active_minigame, local_state, observed_at, fast_exit_sent, active = nil, nil, nil, nil, nil
+            return
+        end
+        end_session("session_end")
     end)
 end)
 
@@ -236,12 +346,17 @@ end)
 local relevant = {
     action_one_hold = true, interact_hold = true, jump_held = true,
     action_one_pressed = true, action_one_released = true,
-    action_two_pressed = true,
+    action_two_pressed = true, interact_pressed = true,
     move = true, move_left = true, move_right = true, move_forward = true, move_backward = true,
 }
 local scan_actions = { action_one_pressed = true, action_one_hold = true, action_one_released = true }
 
 local function solve_input(action, original)
+    if reopen and sampling_time then
+        local value = reopen_input(action, original, sampling_time)
+        if value ~= nil then return value end
+    end
+    if action == "interact_pressed" then return original end
     local scanning = settings.enable_auto_scan and scan_actions[action]
     if not active and not scanning then return original end
     local t = sampling_time
@@ -284,10 +399,10 @@ end)
 mod.update = function(dt)
     if not mod:is_enabled() then return end
     if local_state and not ctx.session_valid() then end_session("ownership_changed") end
-    local scan_enabled = settings.enable_scan or settings.enable_auto_scan
-    if not scan_enabled then return end
     local t = ctx.time()
-    if not t then return end
+    if reopen and t and t > reopen.t + REOPEN_TIMEOUT then abort_reopen("no new session in time") end
+    local scan_enabled = settings.enable_scan or settings.enable_auto_scan
+    if not scan_enabled or not t then return end
     scan.update(dt, t)
 end
 

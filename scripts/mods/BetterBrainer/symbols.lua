@@ -1,3 +1,43 @@
+local HIT_MARGIN = 0.03 -- pressed inside the native hit window less this, on both sides
+local REROLL_MARGIN = 0.15 -- a reroll must be expected to save more than this
+local REROLL_BASE = 0.2 -- cancel, the 0.15 s interaction spacing and re-entry, before the first measurement
+local MAX_REROLLS = 8 -- setting range
+
+-- First fixed frame at or after `ready` (frames at t0 + n * dt) whose phase lies in either hit window of `target`,
+-- as input() decides it: inside [centre - radius, centre + radius] around the forward or reverse centre.
+local function press_time(target, ready, t0, start, dt, period, spacing, radius)
+    local best
+    local c = (target - 1) * spacing
+    for i = 1, 2 do
+        local centre = start + (i == 1 and c or period - c)
+        local k = math.ceil((ready - centre - radius) / period - 1e-9)
+        for _ = 1, 2 do
+            local from = centre - radius + k * period
+            local at = t0 + math.ceil((math.max(ready, from) - t0) / dt - 1e-9) * dt
+            if at <= from + 2 * radius + 1e-9 then
+                if not best or at < best then best = at end
+                break
+            end
+            k = k + 1
+        end
+    end
+    return best
+end
+
+-- Time from t0 to the last press: two frames between presses, and a press waits for the stage receipt of the press
+-- two before it (input() keeps at most two pending).
+local sent = {}
+local function board_cost(targets, first, last, t0, start, dt, period, spacing, radius, ack)
+    local ready, at = t0, t0
+    for s = first, last do
+        local i = s - first + 1
+        if i >= 3 then ready = math.max(ready, sent[i - 2] + ack) end
+        at = press_time(targets[s], ready, t0, start, dt, period, spacing, radius)
+        sent[i], ready = at, at + 2 * dt
+    end
+    return at - t0
+end
+
 return function(ctx)
     local mod = ctx.mod
     local module = {}
@@ -8,6 +48,11 @@ return function(ctx)
     local sent_frame, predicted_stage, observed_stage, observed_mistakes
     local ahead = true
     local observed_at
+    -- Reroll (DESIGN.md, Symbols reroll): reopening deals a new board.
+    local rerolls, decided, rolling, reroll_t = 0, nil, false, nil
+    local evaluated, decision_phase -- board start first evaluated, and its phase then
+    local delay_estimate, rtt, next_ping = nil, 0, 0
+    local fresh_key, fresh, fresh_costs, sequence = nil, {}, {}, {}
     local views = setmetatable({}, { __mode = "k" })
     local stopped_clocks = setmetatable({}, { __mode = "k" })
     local clock_receipts = setmetatable({}, { __mode = "k" })
@@ -47,11 +92,105 @@ return function(ctx)
         waiting, observed_at = false, nil
         views = setmetatable({}, { __mode = "k" })
         clear_press()
+        rerolls, decided, rolling, reroll_t, evaluated = 0, nil, false, nil, nil
         if reason ~= "session_end" then
             stopped_clocks = setmetatable({}, { __mode = "k" })
             clock_receipts = setmetatable({}, { __mode = "k" })
             board_receipts = setmetatable({}, { __mode = "k" })
         end
+        if reason == "gameplay_exit" then delay_estimate, rtt, next_ping = nil, 0, 0 end
+    end
+
+    -- The core resumes us in the new session after a reroll; start() already took the new session's receipts apart.
+    function module.resume(mg, t)
+        rolling, observed_at = false, nil
+    end
+
+    function module.reopen_failed()
+        rolling = false
+    end
+
+    -- Expected time from a fresh board's first possible press to its last, playing optimally with `remaining`
+    -- rerolls left: values[0] = E[cost], values[k] = E[min(cost, delay + values[k - 1])]. Every target sequence is
+    -- equally likely (minigame_decode_symbols.lua:118-138).
+    local function fresh_values(mg, phase, dt, ack, delay)
+        local key = string.format("%.2f:%.2f:%.2f:%.4f", phase, ack, delay, dt)
+        if key == fresh_key then return fresh end
+        local sweep, items, stages = mg._decode_symbols_sweep_duration, mg._decode_symbols_items_per_stage, mg._stage_amount
+        local period, spacing = 2 * sweep, sweep / (items - 1)
+        local radius = math.max(0, spacing * 0.5 - HIT_MARGIN)
+        local count, total = 0, 0
+        local function walk(stage)
+            if stage > stages then
+                count = count + 1
+                fresh_costs[count] = board_cost(sequence, 1, stages, phase, 0, dt, period, spacing, radius, ack)
+                total = total + fresh_costs[count]
+                return
+            end
+            for item = 1, items do
+                if stage == 1 or item ~= sequence[stage - 1] then
+                    sequence[stage] = item
+                    walk(stage + 1)
+                end
+            end
+        end
+        walk(1)
+        fresh[0] = total / count
+        for k = 1, MAX_REROLLS do
+            local sum, limit = 0, delay + fresh[k - 1]
+            for i = 1, count do sum = sum + math.min(fresh_costs[i], limit) end
+            fresh[k] = sum / count
+        end
+        fresh_key = key
+        return fresh
+    end
+
+    -- From a fresh board's first possible press until its first press: reroll when the board is expected to take
+    -- clearly longer than reopening and playing a fresh board with one reroll fewer. A reroll the terminal cannot
+    -- take right now (not in view) is tried again on the next frame.
+    local function consider_reroll(mg, t)
+        local start = mg._decode_start_time
+        if decided == start then return end
+        if evaluated ~= start then
+            evaluated, decision_phase = start, math.floor(((t - start) % (2 * mg._decode_symbols_sweep_duration)) * 100 + 0.5) / 100
+            if reroll_t then
+                local sample = t - reroll_t
+                delay_estimate = delay_estimate and delay_estimate + (sample - delay_estimate) * 0.5 or sample
+                reroll_t = nil
+            end
+        end
+        local limit = ctx.settings.decode_reroll_limit
+        if not limit or limit <= 0 or rerolls >= limit or mg._current_stage ~= 1 or #pending_stages > 0 then
+            decided = start
+            return
+        end
+        if not mg._is_server and t >= next_ping then
+            local connection = Managers.connection
+            local host = connection and connection:host()
+            local ping = host and Network.ping(host)
+            rtt = type(ping) == "number" and ping == ping and ping >= 0 and ping < 2 and ping or 0
+            next_ping = t + 1
+        end
+        local session = Managers.state and Managers.state.game_session
+        local dt = session and session.fixed_time_step or 1 / 52
+        local sweep, items = mg._decode_symbols_sweep_duration, mg._decode_symbols_items_per_stage
+        local period, spacing = 2 * sweep, sweep / (items - 1)
+        local radius = math.max(0, spacing * 0.5 - HIT_MARGIN)
+        local ack = (mg._is_server and 0 or rtt) + 2 * dt
+        local cost = board_cost(mg._decode_targets, 1, mg._stage_amount, t, start, dt, period, spacing, radius, ack)
+        local delay = delay_estimate or REROLL_BASE + (mg._is_server and 0 or rtt)
+        local values = fresh_values(mg, decision_phase, dt, math.floor(ack * 100 + 0.5) / 100,
+            math.floor(delay * 100 + 0.5) / 100)
+        local value = delay + values[math.min(limit - rerolls - 1, MAX_REROLLS)]
+        if cost <= value + REROLL_MARGIN then
+            decided = start
+            mod:debug("Symbols board kept: %.2fs, reroll %.2fs", cost, value)
+            return
+        end
+        if not ctx.request_reopen(mg) then return end
+        decided, rerolls, reroll_t, rolling = start, rerolls + 1, t, true
+        clear_press()
+        mod:debug("Symbols reroll %d of %d: board %.2fs, reroll %.2fs (delay %.2fs)", rerolls, limit, cost, value, delay)
     end
 
     function module.start(mg, player)
@@ -152,7 +291,9 @@ return function(ctx)
         observed_at = t
         if not ctx.settings.enable_decode_auto then clear_press(); return end
         if mg:is_completed() then clear_press(); return end
-        sync_ready(mg, t)
+        if rolling then return end
+        if sync_ready(mg, t) and not waiting then consider_reroll(mg, t) end
+        if rolling then return end
         if observed_stage and mg._current_stage ~= observed_stage
             or observed_mistakes and mg._mistakes ~= observed_mistakes
             or pending_times[1] and (t < pending_times[1] or t - pending_times[1] >= 1.2) then
@@ -174,7 +315,7 @@ return function(ctx)
         local target = game._decode_targets and game._decode_targets[stage]
         local items, sweep = game._decode_symbols_items_per_stage, game._decode_symbols_sweep_duration
         local ready = false
-        if not waiting and #pending_stages < (ahead and 2 or 1)
+        if not waiting and not rolling and #pending_stages < (ahead and 2 or 1)
             and target and start and items and items > 1 and sweep and sweep > 0
             and game._current_state == "gameplay" then
             local phase = (t - start) % (2 * sweep)
