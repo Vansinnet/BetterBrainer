@@ -12,7 +12,7 @@ Do not enable together with NoBrainer: both automate the same input.
 - 2026-10-14 (user: "make it happen", after a read-only speed analysis the same day): build the three largest speed-ups. Search skips its stage transitions by reopening the terminal, Symbols rerolls slow boards by reopening, and Frequency sends all three tests at once from predicted targets. Rejected for now:
   - Seed-predicted openings (Drill, Search, exact Symbols lookahead): they rely on the client reproducing each minigame extension's seed (`level_seed` plus registration order, `minigame_system.lua:61-71`), which is unverified on a dedicated-server client.
   - Final press and cancel in the same frame: a dropped press frame with a timely cancel ends the session unsolved, and Drill and Symbols then lose all progress. It would gain only about one ping of player control.
-- New settings: `decode_reroll_limit` (0-8, default 4; 0 turns rerolls off) and `enable_expedition_reopen` (default on; it acts at speed 5 only, like the existing pre-send). The Frequency pipeline acts at speed 5 and needs no setting.
+- New settings: `decode_reroll_limit` (0-8, default 0 = off; user decision 2026-10-14) and `enable_expedition_reopen` (default off, user decision 2026-10-14; it acts at speed 5 only, like the existing pre-send). The Frequency pipeline acts at speed 5 and needs no setting.
 - Every reopen feature has a kill switch for the rest of the mission after any failure, like the Search pre-send and Drill holding. Failures cost time, never a wrong press.
 
 ## Reopen controller (`BetterBrainer.lua`)

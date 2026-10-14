@@ -7,7 +7,7 @@ Latest revision: **17/17 reopen checks**, **36/36 Drill checks**, **21/21 Search
 - Change (design in `DESIGN.md`):
   - Core reopen controller: cancel, then the 0 s `decoding` interaction once allowed, then resume the solver in the new session.
   - Search skips stage transitions at speed 5 (`enable_expedition_reopen`).
-  - Symbols rerolls slow boards (`decode_reroll_limit`, default 4).
+  - Symbols rerolls slow boards (`decode_reroll_limit`, default 0 = off since 2026-10-14; tested at 4).
   - Frequency at speed 5 does not steer and sends all three tests at once from predicted targets.
   - The first, uninitialized minigame frame's movement is neutral.
 - Offline:

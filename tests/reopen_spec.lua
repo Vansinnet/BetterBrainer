@@ -143,7 +143,7 @@ local function machine(f, options)
     return f
 end
 
-local SPEED5 = { expedition_solve_speed = 5, enable_scan = false, enable_auto_scan = false }
+local SPEED5 = { expedition_solve_speed = 5, enable_expedition_reopen = true, enable_scan = false, enable_auto_scan = false }
 
 local function open_search(seed, values, delay, options)
     local f = fixture(values or SPEED5)
