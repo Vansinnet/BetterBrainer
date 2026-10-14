@@ -1,6 +1,33 @@
 # BetterBrainer Runtime Acceptance
 
-Latest revision: **36/36 Drill checks**, **21/21 Search checks**, **73/73 speed checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
+Latest revision: **17/17 reopen checks**, **36/36 Drill checks**, **21/21 Search checks**, **73/73 speed checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
+
+## Reopen Speed-Ups And Frequency Pipeline — 2026-10-14
+
+- Change (design in `DESIGN.md`):
+  - Core reopen controller: cancel, then the 0 s `decoding` interaction once allowed, then resume the solver in the new session.
+  - Search skips stage transitions at speed 5 (`enable_expedition_reopen`).
+  - Symbols rerolls slow boards (`decode_reroll_limit`, default 4).
+  - Frequency at speed 5 does not steer and sends all three tests at once from predicted targets.
+  - The first, uninitialized minigame frame's movement is neutral.
+- Offline:
+  - `tests/reopen_spec.lua` 17/17 (results in `tests/README.md`).
+  - Unchanged suites: `speed_spec` 73/73, `search_spec` 21/21, `drill_spec` 36/36, `scan_marker_spec` 4/4.
+  - `tools\validate.ps1`: 0 LuaLS diagnostics, LuaJIT load passed.
+  - Windows LuaJIT 2.1.1703358377, source 1.13.1.
+- **In game (pending):** client on a dedicated server; DMF logging mode Custom, Debug output Log, so the `Reopen:`, `Search reopen`, `Symbols` and `Frequency` lines appear in the log.
+  1. Expedition or watertown/tank foundry Search terminal at expedition speed 5. Expected:
+     - after the stage 1 and 2 presses, the auspex closes and reopens at once and the cursor starts in the centre;
+     - the next stage begins without the transition pause;
+     - log lines `Reopen: resumed ...` and `Search reopen: stage N receipt`;
+     - no `reopening switched off` line.
+  2. A regular mission with a decode event (Symbols). Expected:
+     - on a slow board the auspex closes and reopens (`Symbols reroll N of 4: board X s, reroll Y s`), at most 4 times;
+     - a kept board logs `Symbols board kept`;
+     - the measured delay in later reroll lines is the real reopen cost (expected about 0.2-0.4 s).
+  3. Optional, a Frequency device (communications hack) at speed 5. Expected `Frequency plan: ...` and `Frequency pipeline: three tests sent`, the hack done in about one ping after the receipts, and no `switched off` line.
+  4. Look away from the terminal (within the minigame's view limits) during Search: no reopen, native transition.
+  - Report back: the log lines and whether anything looked wrong, such as getting stuck outside the terminal or a mistake sound.
 
 ## Scan Highlight Release On Deactivation — 2026-10-05
 

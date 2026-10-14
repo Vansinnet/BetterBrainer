@@ -46,9 +46,14 @@ Do not enable together with NoBrainer: both automate the same input.
 
 ## Frequency pipeline (`frequency.lua`)
 - The server scores any test RPC against its current target without checking the sender (`minigame_system.lua:198-218`, `minigame_frequency.lua:252-284`). The next target is drawn from the seed and rerolled against the server's current frequency (`minigame_frequency.lua:67-103`).
-- That frequency is set by `generate_board` and changed only by joystick input on a dedicated server: `update`'s camera path is client and host only (`minigame_frequency.lua:138-216`).
-- At speed 5 the solver never steers. When every consumed move of the session was zero, it finds the server seed at setup on the chain from the received start seed (up to 256 draws), requiring exactly one match of the first target. It then predicts targets 2 and 3 and sends all three tests on the first armed press.
-- Each test answers with exactly one stage receipt. The solver waits for three, checks every target receipt against the prediction, and switches the pipeline off for the mission on any mismatch.
+- That frequency is set by `generate_board` at every setup and changed only by a non-zero axis in `on_axis_set`. On a dedicated server `update`'s camera path does not run (`minigame_frequency.lua:79-92,138-216`). Setup always sends the stale initial `_start_seed`, so the server's seed lies somewhere on the chain from it.
+- At speed 5 the solver never steers, not even before the gameplay receipt. The core makes the first minigame frame's directions neutral: it is sampled before the state initializes the minigame, so no solver owns it yet. A safe hook on `on_axis_set` flags any direction the local player's `_update_input` consumed anyway.
+- Prediction:
+  - The solver searches the chain from the received start seed (up to 256 draws) for positions whose frequency and redraw rule reproduce the first target.
+  - The first target pins where it was drawn, not where setup began: a later start whose frequency skips the same redraws gives the same target. All matching positions must therefore predict the same targets 2 and 3, or the session uses one test per receipt.
+  - Offline, 36 of 40 first sessions and 14 of 20 later sessions on the same device pipeline.
+- A late first frame would replay the input from before the session (`authoritative_player_input_handler.lua:153-157`). The core records the server's report for the session's first frame (`had_received_input`), and the first armed press waits up to 0.1 s for it. Only an on-time report allows pipelining; a missing or late one means one test per receipt.
+- Sending: all three tests go out on that press. Each test answers with exactly one stage receipt, so the solver waits for three, checks every stage and target receipt against the prediction, and switches pipelining off for the mission on any mismatch. Offline, a forced server-side divergence costs at most two mistakes and still solves.
 - On a local server it tests each new target in the same frame.
 
 ## Source contracts
@@ -66,6 +71,21 @@ Do not enable together with NoBrainer: both automate the same input.
 
 ## Tests
 See `tests/README.md` (command, what it checks, dated result). Offline evidence, not in-game results.
+- 2026-10-14, `tests/reopen_spec.lua` 17/17. Mean solve times without and with the change:
+
+  | Case | Receipt delay | Before | After |
+  |---|---|---|---|
+  | Search (transition skip) | 30 ms | 1.271 s | 0.757 s |
+  | Search | 165 ms | 2.000 s | 1.264 s |
+  | Search | local server | 0.710 s | 0.418 s |
+  | Symbols (reroll limit 4) | 30 ms | 5.497 s | 4.091 s |
+  | Symbols | 165 ms | 5.637 s | 4.845 s |
+  | Symbols | local server | 5.449 s | 4.003 s |
+  | Frequency (pipeline) | 30 ms | 0.280 s | 0.136 s |
+  | Frequency | 165 ms | 1.120 s | 0.472 s |
+  | Frequency | local server | | 0.040 s |
+
+  Every case has zero mistakes. Existing suites unchanged: speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
 
 ## Runtime status
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).

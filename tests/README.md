@@ -153,6 +153,51 @@ Boards come from the real `MinigameDecodeSearch:generate_board` with the fixture
 
 Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. With `--baseline`, the stall check at 300 ms reports a mistake on 6 of 120 boards for the 1.0.2 `search.lua` and 20 of 120 for the pre-send without the gate; that version also fails the settings and stalled-receipt reopen checks. `fixture.lua` gives each fixture a no-op `mod:debug` that tests may replace to capture DMF debug lines.
 
+## Reopen and pipeline checks (`reopen_spec.lua`)
+
+```powershell
+& tools\luajit\luajit.exe mods\active\BetterBrainer\tests\reopen_spec.lua
+```
+
+| Command | What it checks | Last result |
+|---|---|---|
+| `reopen_spec.lua` | Search transition skip, Symbols reroll and the Frequency pipeline through both sides' state machines | 2026-10-14: 17/17, zero mistakes in every case |
+
+How it works:
+- A small model of the character state machine wraps the real `PlayerCharacterStateMinigame` and minigame classes on both sides. A cancel exits through the real `on_exit`. A sampled `interact_pressed` re-enters if the decoder allows it: minigame inactive, more than 0.1 s since that side's last entry.
+- The new state is current, without a minigame, for one sampled frame, then initializes through the real `_check_initialize_minigame_from_unit` before consuming that frame. That is the order of `player_character_state_minigame.lua:138-148`.
+- The server consumes client frame n in tick n + 3 and reports each frame in the server input state; the interactor and decoder are stubs.
+- Boards come from the engine's own generation with the fixture RNG (`init` wrapped to vary the seed).
+
+Results, mean solve over 40 boards (Symbols 60):
+
+| Case | Receipt delay | Without | With |
+|---|---|---|---|
+| Search transition skip | 30 ms | 1.271 s | 0.757 s |
+| Search transition skip | 165 ms | 2.000 s | 1.264 s |
+| Search transition skip | local server | 0.710 s | 0.418 s |
+| Symbols reroll (limit 4) | 30 ms | 5.497 s | 4.091 s (1.43 rerolls per hack) |
+| Symbols reroll | 165 ms | 5.637 s | 4.845 s |
+| Symbols reroll | local server | 5.449 s | 4.003 s |
+| Frequency pipeline | 30 ms | 0.280 s | 0.136 s (36 of 40 pipelined) |
+| Frequency pipeline | 165 ms | 1.120 s | 0.472 s |
+| Frequency pipeline | local server | | 0.040 s |
+
+Further cases:
+- A terminal out of view: no reopen.
+- A refused re-entry: one attempt, then reopening is switched off; the player re-enters by hand.
+- A press lost before the reopen: the stage is planned again.
+- A recentre 0.5 s late on an ordered channel.
+- A late first frame: no pipeline.
+- A forced server-side seed divergence: at most two mistakes, then pipelining is switched off.
+- A later session on the same device with movement held through the entry: 14 of 20 pipelined, zero mistakes.
+
+Limits:
+- The model has no server correction (rollback). A completed device re-entered by a client still shows completion until the new setup's receipts, so the later-session case starts from an unsolved session.
+- Native transport, the real interactor and view activation timing are not modelled.
+
+Offline evidence, not in-game results.
+
 ## Server input state in the fixture
 
 `fixture.lua` models the server's per-tick `server_unit_data_state` (`player_unit_data_extension.lua:984-991`): the fixture's server runs client frame n in tick n + 3, and reports frame n with `had_received_input = true` unless a test substituted older input for it. The state is queued to the client behind the RPCs of that frame with the normal receipt delay and read through the mod's real hook on a stub `PlayerUnitDataExtension._read_server_unit_data_state` (`f:report_frame(frame, had)` delivers one by hand; `speed_spec.lua` uses it where it drives single frames; `f.drop_server_state = true` drops every state). The real server reports once per tick, usually a frame or more after the input arrived, so the fixture's wait is close to the real one. The fixture cannot reorder state ahead of RPCs; that remaining assumption is described in `../TESTING.md`.

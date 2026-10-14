@@ -8,6 +8,7 @@ local fast_exit_sent
 -- A solver may close and reopen its terminal (DESIGN.md, Reopen controller).
 local REOPEN_GAP, REOPEN_TIMEOUT = 0.15, 1
 local reopen, reopen_off, session_t, resumed_t
+local entering_frame, entering -- input frame last checked, and whether it enters a minigame
 
 function ctx.time()
     local time = Managers.time
@@ -149,10 +150,11 @@ local function reset(reason)
     sampling_service, sampling_time, sampling_ephemeral = nil, nil, nil
     local_state, active, observed_at = nil, nil, nil
     reopen, reopen_off, session_t, resumed_t = nil, nil, nil, nil
+    ctx.session_frame, ctx.session_frame_timely, ctx.consuming, entering_frame = nil, nil, nil, nil
     for i = 1, #modules do modules[i].reset(reason) end
 end
 
-local function select_session(state)
+local function select_session(state, frame)
     local mg = state._minigame
     local extension = mg and mg._minigame_extension
     local solver = extension and solvers[extension:minigame_type()]
@@ -163,6 +165,8 @@ local function select_session(state)
     if ctx.active_minigame ~= mg then
         if active then end_session("session_changed") end
         local t = ctx.time()
+        -- The server initializes the minigame in this same frame; its state reports whether it ran the frame's input.
+        ctx.session_frame, ctx.session_frame_timely = frame, nil
         if reopen and reopen.mg == mg and reopen.module == solver then
             -- The entry we asked for: resume the suspended solver instead of starting fresh.
             mod:debug("Reopen: resumed %.3fs after the request", t and t - reopen.t or -1)
@@ -276,14 +280,22 @@ local function observe(t)
     end
 end
 
+local function finish_consume(...)
+    ctx.consuming = nil
+    return ...
+end
+
 mod:hook_require("scripts/extension_systems/character_state_machine/character_states/player_character_state_minigame", function(State)
     mod:hook(State, "_update_input", function(func, self, t, fixed_frame, input_extension)
-        if ctx.is_local_player(self._player) then
-            select_session(self)
+        local own = ctx.is_local_player(self._player)
+        if own then
+            select_session(self, fixed_frame)
             if ctx.session_valid() then observe(t) end
         end
+        -- Solvers can tell the local player's consumed input from other callers of the minigame (Frequency's camera).
+        ctx.consuming = own and self or nil
         -- Keep native input edges, dodging, animation, and weapon action ordering.
-        return func(self, t, fixed_frame, input_extension)
+        return finish_consume(func(self, t, fixed_frame, input_extension))
     end)
     mod:hook_safe(State, "on_exit", function(self, unit, t, next_state)
         if self ~= local_state then return end
@@ -340,8 +352,27 @@ mod:hook_require("scripts/extension_systems/unit_data/player_unit_data_extension
         if not ok or type(frame) ~= "number" or type(had) ~= "boolean" then return end
         ctx.state_seen = true
         if had and frame > (ctx.timely_frame or -math.huge) then ctx.timely_frame = frame end
+        if frame == ctx.session_frame then ctx.session_frame_timely = had end
     end)
 end)
+
+-- The first minigame frame is sampled before the state machine initializes the minigame
+-- (player_character_state_minigame.lua:138-148), so no solver owns it yet. A direction there would still reach the
+-- new minigame (a Search step, a Drill selection, a Frequency change), and a late frame replays the one before it.
+local function entering_minigame()
+    local frame = ctx.input_frame
+    if entering_frame == frame then return entering end
+    entering_frame, entering = frame, false
+    local players = Managers.player
+    local player = players and players:local_player_safe(1)
+    local unit = player and player.player_unit
+    local csm = unit and Unit.alive(unit) and ScriptUnit.has_extension(unit, "character_state_machine_system")
+    if csm and csm:current_state_name() == "minigame" then
+        local state = csm:current_state()
+        entering = state ~= nil and state:minigame() == nil
+    end
+    return entering
+end
 
 local relevant = {
     action_one_hold = true, interact_hold = true, jump_held = true,
@@ -357,6 +388,9 @@ local function solve_input(action, original)
         if value ~= nil then return value end
     end
     if action == "interact_pressed" then return original end
+    if not active and MOVEMENT[action] and not sampling_ephemeral and entering_minigame() then
+        return action == "move" and Vector3(0, 0, 0) or 0
+    end
     local scanning = settings.enable_auto_scan and scan_actions[action]
     if not active and not scanning then return original end
     local t = sampling_time

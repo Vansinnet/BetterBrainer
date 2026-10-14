@@ -86,6 +86,15 @@ function M.factory()
             if callback then callback(Extension) end
         end
         hook_state()
+        -- The historical state machine stub predates current_state_name (character_state_machine_extension.lua:275-277).
+        local state = f.state
+        function f:state(mg, player)
+            local result = state(self, mg, player)
+            self.extensions[player.player_unit].character_state_machine_system.current_state_name = function()
+                return "minigame"
+            end
+            return result
+        end
         local reload, tick, consume, dispatch = f.reload, f.tick, f.consume, f.dispatch
         function f:reload(...)
             local results = M.pack(reload(self, ...))

@@ -2,6 +2,9 @@ local Settings = require("scripts/settings/minigame/minigame_settings")
 local UIWidget = require("scripts/managers/ui/ui_widget")
 local MOVE = { move = true, move_left = true, move_right = true, move_forward = true, move_backward = true }
 local PRIMARY = { action_one_hold = true, interact_hold = true, jump_held = true }
+local CHAIN = 256 -- seed draws searched for the server's position: earlier sessions on the same device advance it
+local MATCH = 0.004 -- targets are whole hundredths (minigame_frequency.lua:67-77)
+local REPORT_WAIT = 0.1 -- the first armed press waits this long for the server's report of the session's first frame
 
 local function movement(action, x, y)
     if action == "move_left" then return math.max(-x, 0) end
@@ -9,6 +12,48 @@ local function movement(action, x, y)
     if action == "move_forward" then return math.max(y, 0) end
     if action == "move_backward" then return math.max(-y, 0) end
     return Vector3(x, y, 0)
+end
+
+-- One frequency draw (minigame_frequency.lua:67-77). Each next_random call advances the seed one step whatever the
+-- bounds (types/darktide/core.lua).
+local function draw(seed)
+    local x, y
+    seed, x = math.next_random(seed, Settings.frequency_width_min_scale * 100, Settings.frequency_width_max_scale * 100)
+    seed, y = math.next_random(seed, Settings.frequency_height_min_scale * 100, Settings.frequency_height_max_scale * 100)
+    return seed, x / 100, y / 100
+end
+
+-- _change_target_frequency (minigame_frequency.lua:94-103): redrawn while either axis is within the margin.
+local function next_target(seed, fx, fy)
+    local margin = Settings.frequency_success_margin
+    for _ = 1, 64 do
+        local x, y
+        seed, x, y = draw(seed)
+        if math.abs(fx - x) >= margin and math.abs(fy - y) >= margin then return seed, x, y end
+    end
+end
+
+-- The server drew this session's frequency at setup and its first target at start, both from its current seed, which
+-- lies on the chain from the received start seed (minigame_frequency.lua:40-56,79-103). The receipt pins where the
+-- first target was drawn, not where setup began: a later start whose frequency skips the same redraws yields the same
+-- target. Every position matching the first target must predict the same targets 2 and 3, given a frequency no input
+-- has changed.
+local function predict(start_seed, tx, ty)
+    local seed, found = start_seed, nil
+    for _ = 0, CHAIN do
+        local s, fx, fy = draw(seed)
+        local s1, x1, y1 = next_target(s, fx, fy)
+        if s1 and math.abs(x1 - tx) < MATCH and math.abs(y1 - ty) < MATCH then
+            local s2, x2, y2 = next_target(s1, fx, fy)
+            local s3, x3, y3
+            if s2 then s3, x3, y3 = next_target(s2, fx, fy) end
+            if not s3 then return false end
+            if found and (found[1] ~= x2 or found[2] ~= y2 or found[3] ~= x3 or found[4] ~= y3) then return false end
+            found = { x2, y2, x3, y3 }
+        end
+        seed = math.next_random(seed, 1, 2)
+    end
+    return found or false
 end
 
 return function(ctx)
@@ -22,6 +67,12 @@ return function(ctx)
     local move_t, move_x, move_y
     local arrows
     local openings = setmetatable({}, { __mode = "k" })
+    -- Pipeline (DESIGN.md, Frequency pipeline): all three tests at once from predicted targets.
+    local start_seeds = setmetatable({}, { __mode = "k" }) -- client minigame -> start seed of its latest setup
+    local predicting = true -- cleared after a wrong prediction, until the next mission
+    local axis_moved -- this session consumed a direction, which changes the server's frequency
+    local plan, plan_x, plan_y -- targets 2 and 3 predicted for the first target plan_x, plan_y (false: none)
+    local armed_plan, pipeline, fresh_t
 
     local function opening(mg)
         local receipt = openings[mg]
@@ -55,6 +106,8 @@ return function(ctx)
         waiting_since, stage_one_failed, recovery_requested = nil, false, false
         move_t, move_x, move_y = nil, nil, nil
         arrows = nil
+        axis_moved, plan, plan_x, plan_y, armed_plan, pipeline, fresh_t = false, nil, nil, nil, nil, nil, nil
+        if reason == "gameplay_exit" then predicting = true end
     end
 
     function module.observe(mg, t)
@@ -83,11 +136,27 @@ return function(ctx)
             stage, target_x, target_y = s, wanted.x, wanted.y
         end
         if module.cancel_requested() then return end
+        if not fresh_t and fresh(mg) then fresh_t = t end
+        if pacing == 0 and predicting and not mg._is_server and s == 1 and not waiting and fresh(mg)
+            and (plan_x ~= wanted.x or plan_y ~= wanted.y) then
+            plan_x, plan_y = wanted.x, wanted.y
+            local seed = start_seeds[mg]
+            plan = seed ~= nil and predict(seed, wanted.x, wanted.y)
+            ctx.mod:debug("Frequency plan: %s", plan and string.format("%.2f,%.2f then %.2f,%.2f", plan[1], plan[2],
+                plan[3], plan[4]) or "none")
+        end
         -- Stage-one failure sends only stage 1; other responses also replace the target.
         if waiting and stage_received and (target_received or stage_one_failed) then
             waiting = false
             waiting_since = nil
             ready_at = math.max(ready_at, t + pacing)
+            if pipeline then
+                if pipeline.failed then
+                    predicting = false
+                    ctx.mod:debug("Frequency pipeline: a receipt differed from the prediction, pipelining switched off")
+                end
+                pipeline = nil
+            end
         end
         local dx, dy = target_x - current.x, target_y - current.y
         local strength = 1 - pacing * 0.55
@@ -99,13 +168,25 @@ return function(ctx)
         if source ~= "input_service" then return original end
         t = t or ctx.time()
         if not t or not game or game ~= ctx.active_minigame or not ctx.settings.enable_frequency_auto
-            or game:is_completed() or game:state() ~= Settings.game_states.gameplay then return original end
+            or game:is_completed() then return original end
+        -- Never steer at speed 5, not even before the gameplay receipt: the target is submitted directly, and the
+        -- server's frequency must stay as generated for the pipeline.
+        if MOVE[action] and ctx.pacing("frequency_solve_speed") == 0 then return movement(action, 0, 0) end
+        if game:state() ~= Settings.game_states.gameplay then return original end
         if PRIMARY[action] then
-            local held = ctx.pulse(pulse, fresh(game) and not original and stage ~= nil and not waiting
-                and not recovery_requested and t >= ready_at)
+            local pipelined = plan and stage == 1 and not axis_moved and predicting and ctx.state_seen
+            local ready = fresh(game) and not original and stage ~= nil and not waiting
+                and not recovery_requested and t >= ready_at
+            -- A late first frame would have run the input from before the session (authoritative_player_input_handler
+            -- .lua:153-157): wait briefly for the server's report of that frame before pipelining.
+            if ready and pipelined and ctx.session_frame_timely == nil and fresh_t and t < fresh_t + REPORT_WAIT then
+                ready = false
+            end
+            local held = ctx.pulse(pulse, ready)
             if held and armed_frame ~= ctx.input_frame then
                 armed_frame, armed_t = ctx.input_frame, t
                 armed_stage, armed_x, armed_y = stage, target_x, target_y
+                armed_plan = pipelined and ctx.session_frame_timely == true and plan or nil
             end
             return held
         elseif MOVE[action] then
@@ -167,13 +248,37 @@ return function(ctx)
     ctx.mod:hook_safe("MinigameFrequency", "set_current_stage", function(self, next_stage)
         if self._is_server == false then opening(self).stage = true end
         if self == game and waiting then
+            if pipeline then
+                -- Every test answers with exactly one stage receipt (minigame_frequency.lua:283).
+                pipeline.receipts = pipeline.receipts + 1
+                if next_stage ~= armed_stage + pipeline.receipts then pipeline.failed = true end
+                if pipeline.receipts == 3 then stage_received, target_received = true, true end
+                return
+            end
             stage_one_failed = armed_stage == 1 and next_stage == 1
             stage_received = next_stage ~= armed_stage or stage_one_failed
         end
     end)
     ctx.mod:hook_safe("MinigameFrequency", "set_target_frequency", function(self, x, y)
         if self._is_server == false then opening(self).target = true end
-        if self == game and waiting then target_received = true end
+        if self == game and waiting then
+            if pipeline then
+                pipeline.targets_seen = pipeline.targets_seen + 1
+                local i = 2 * pipeline.targets_seen
+                local tx, ty = pipeline.targets[i - 1], pipeline.targets[i]
+                if not tx or math.abs(tx - x) >= MATCH or math.abs(ty - y) >= MATCH then pipeline.failed = true end
+                return
+            end
+            target_received = true
+        end
+    end)
+    -- The start seed of each setup (minigame_frequency.lua:79-92; received as rpc_minigame_sync_generate_board).
+    ctx.mod:hook_safe("MinigameFrequency", "generate_board", function(self, seed)
+        if self._is_server == false then start_seeds[self] = seed end
+    end)
+    -- A consumed direction changes the server's frequency; the client camera path does not reach the server.
+    ctx.mod:hook_safe("MinigameFrequency", "on_axis_set", function(self, t, x, y)
+        if self == game and ctx.consuming and (x ~= 0 or y ~= 0) then axis_moved = true end
     end)
 
     -- Base.action calls this only after consuming the rising edge. Safe hooks still run.
@@ -204,10 +309,28 @@ return function(ctx)
                 waiting, stage_received, target_received = true, false, false
                 waiting_since, stage_one_failed = t, false
                 self:send_rpc_to_server("rpc_minigame_sync_frequency_test_frequency", armed_x, armed_y)
+                if armed_plan then
+                    -- Reliable RPCs arrive in order; the server scores each against the target the one before set.
+                    pipeline = { receipts = 0, targets_seen = 0, targets = armed_plan }
+                    self:send_rpc_to_server("rpc_minigame_sync_frequency_test_frequency", armed_plan[1], armed_plan[2])
+                    self:send_rpc_to_server("rpc_minigame_sync_frequency_test_frequency", armed_plan[3], armed_plan[4])
+                    ctx.mod:debug("Frequency pipeline: three tests sent at %.3f", t)
+                end
             end
         end
+        local chain = pressed and consumed and self._is_server and ctx.pacing("frequency_solve_speed") == 0
         consuming = false
         armed_t = nil
+        if chain then
+            -- A local server replaces the target at once (minigame_frequency.lua:258-269): test each new one now.
+            local expected = armed_stage + 1
+            while self:current_stage() == expected and not self:is_completed()
+                and self:state() == Settings.game_states.gameplay do
+                local wanted = self:target_frequency()
+                self:test_frequency(wanted.x, wanted.y)
+                expected = expected + 1
+            end
+        end
         return ...
     end
 
