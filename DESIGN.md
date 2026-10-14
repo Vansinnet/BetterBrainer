@@ -89,7 +89,7 @@ See `tests/README.md` (command, what it checks, dated result). Offline evidence,
 
 ## Runtime status
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
-- 1.1.0: Symbols reroll reported working in game by the user (2026-10-14; build, mission and ping not recorded). Search transition skip and the Frequency pipeline are offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
+- 1.1.0: Symbols reroll reported working in game by the user (2026-10-14; build, mission and ping not recorded). Search transition skip also reported working (same day). The Frequency pipeline is offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
 
 ## Open items
 - 2026-10-14: verify in game that re-interaction succeeds at the first allowed frame on a dedicated server, and measure the Symbols reopen delay (DMF debug: `Symbols reroll` and `Reopen` lines).
