@@ -57,9 +57,11 @@ jobs:
             || { echo "Drafts and prereleases stay on GitHub only." >&2; exit 1; }
           jq -r .body release.json > body.md
 
-          # The user-facing "## Changes" section becomes the Nexus changelog.
+          # The user-facing "## Changes" section becomes the Nexus changelog. Nexus shows each line
+          # as plain text, so list markers, bold, code and link markup are removed.
           awk '/^## /{ p = ($0 ~ /^## Changes[[:space:]]*$/); next } p' body.md \
-            | sed '/^[[:space:]]*$/d' > changelog.md
+            | sed -E '/^[[:space:]]*$/d; s/^[[:space:]]*[-*+][[:space:]]+//; s/\*\*([^*]+)\*\*/\1/g; s/__([^_]+)__/\1/g; s/`([^`]+)`/\1/g; s/\[([^]]+)\]\([^)]+\)/\1/g' \
+            > changelog.md
           [ -s changelog.md ] || { echo 'Release notes need a non-empty "## Changes" section.' >&2; exit 1; }
 
           {
