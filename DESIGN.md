@@ -96,9 +96,10 @@ See `tests/README.md` (command, what it checks, dated result). Offline evidence,
 
 ## Runtime status
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
+- Exact Symbols lookahead (65bc9c2): 2026-10-25, dt-cli log in a regular mission as a client of a mission server (`is_client=true`, `host_type=mission_server`), limit 8. One hack: `Symbols reroll 1 of 8 (seed): board 3.88s, reroll 2.81s (delay 0.25s)`, reopen resumed after 0.097 s, then `Symbols board kept (seed): 2.56s`. The client rebuilt the seed, and the reroll dealt the faster board it predicted.
 - 1.1.0: Symbols reroll reported working in game by the user (2026-10-14; build, mission and ping not recorded). Search transition skip also reported working (same day). The Frequency pipeline is offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
 
 ## Open items
 - 2026-10-14: verify in game that re-interaction succeeds at the first allowed frame on a dedicated server, and measure the Symbols reopen delay (DMF debug: `Symbols reroll` and `Reopen` lines).
 - 2026-10-14: seed-predicted openings need an in-game check that a client reproduces the server's minigame seeds (NoBrainer's `seed_status`).
-- 2026-10-25: exact Symbols lookahead is built; check in a dedicated-server mission that the client's decisions log `(seed)`, not `(average)`.
+- 2026-10-25: exact Symbols lookahead: one hack seen as a client (see Runtime status); more hacks and missions, including a hot join, are still unobserved.
