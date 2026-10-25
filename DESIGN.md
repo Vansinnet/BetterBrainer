@@ -1,5 +1,5 @@
 # BetterBrainer: design
-Status 2026-10-25: 1.0.4 released; in development: 1.0.4 plus the Frequency pipeline. ModID `BetterBrainer`. Verified: static and offline (see Tests); the Frequency pipeline is not yet confirmed in game.
+Status 2026-10-25: 1.0.5 released (1.0.4 plus the Frequency pipeline). ModID `BetterBrainer`. Verified: static and offline (see Tests); the Frequency pipeline is not yet confirmed in game.
 Do not enable together with NoBrainer: both automate the same input.
 Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod + servo skull + Symbols reroll + Search transition skip. Its `drill.lua`, `frequency.lua`, `balance.lua` and `scan.lua` are identical copies of ours: change them here first, then copy. Its `symbols.lua`, `search.lua` and core carry the reroll and transition-skip code, so a fix to those solvers or to the core is made in both mods by hand. Never add reroll or transition skip back to BetterBrainer (user decision 2026-10-25: too strong).
 
@@ -40,7 +40,7 @@ See `tests/README.md` (command, what it checks, dated result). Offline evidence,
 
 ## Runtime status
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
-- Frequency pipeline: offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
+- Frequency pipeline (1.0.5): offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
 
 ## Open items
 - 2026-10-14: verify the Frequency pipeline in game as a dedicated-server client at speed 5 (`TESTING.md`, step 3).
