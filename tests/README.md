@@ -161,7 +161,7 @@ Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. With `--ba
 
 | Command | What it checks | Last result |
 |---|---|---|
-| `reopen_spec.lua` | Search transition skip, Symbols reroll and the Frequency pipeline through both sides' state machines | 2026-10-14: 17/17, zero mistakes in every case |
+| `reopen_spec.lua` | Search transition skip, Symbols reroll and the Frequency pipeline through both sides' state machines | 2026-10-25: 18/18, zero mistakes in every case |
 
 How it works:
 - A small model of the character state machine wraps the real `PlayerCharacterStateMinigame` and minigame classes on both sides. A cancel exits through the real `on_exit`. A sampled `interact_pressed` re-enters if the decoder allows it: minigame inactive, more than 0.1 s since that side's last entry.
@@ -178,7 +178,8 @@ Results, mean solve over 40 boards (Symbols 60):
 | Search transition skip | local server | 0.710 s | 0.418 s |
 | Symbols reroll (limit 4) | 30 ms | 5.497 s | 4.091 s (1.43 rerolls per hack) |
 | Symbols reroll | 165 ms | 5.637 s | 4.845 s |
-| Symbols reroll | local server | 5.449 s | 4.003 s |
+| Symbols reroll | local server | 5.449 s | 3.719 s (exact boards from the server seed; 4.003 s from the average board) |
+| Symbols reroll, client seed rebuilt | 30 ms | 4.091 s (average board) | 4.002 s (exact boards) |
 | Frequency pipeline | 30 ms | 0.280 s | 0.136 s (36 of 40 pipelined) |
 | Frequency pipeline | 165 ms | 1.120 s | 0.472 s |
 | Frequency pipeline | local server | | 0.040 s |
@@ -190,6 +191,7 @@ Further cases:
 - A recentre 0.5 s late on an ordered channel.
 - A late first frame: no pipeline.
 - A forced server-side seed divergence: at most two mistakes, then pipelining is switched off.
+- A client terminal registered as the third extension of a MinigameSystem (real `init` and `on_add_extension` on stubbed parents): its seed is rebuilt and no Symbols decision falls back to the average board. 17 of 60 hacks make no logged reroll decision on either path (the solver skips the decision silently), so the rebuilt seed decides 43.
 - A later session on the same device with movement held through the entry: 14 of 20 pipelined, zero mistakes.
 
 Limits:

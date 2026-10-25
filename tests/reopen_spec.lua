@@ -341,6 +341,50 @@ test("Symbols reroll refused: one attempt, the player re-enters, no mistake", fu
     end
 end)
 
+-- A client counts MinigameSystem registrations from the level seed. The real init and on_add_extension run on
+-- stubbed ExtensionSystemBase parents; the client terminal is the third extension.
+local function register_client_seed(f, level_seed)
+    local System, Base = f.env.CLASS.MinigameSystem, f.env.CLASS.ExtensionSystemBase
+    local init, add = Base.init, Base.on_add_extension
+    Base.init = function(self) self._is_server, self._unit_to_extension_map = false, {} end
+    -- The map holds the client terminal's extension; the returned stand-in takes MinigameSystem's on_add_extension call.
+    Base.on_add_extension = function(self, _, unit)
+        self._unit_to_extension_map[unit] = unit == "terminal" and f.client._minigame_extension or {}
+        return { on_add_extension = function() end }
+    end
+    local system = setmetatable({}, { __index = System })
+    System.init(system, {}, { level_seed = level_seed, mission = {} })
+    for _, unit in ipairs({ "a", "b", "terminal" }) do system:on_add_extension(nil, unit, "MinigameExtension", {}) end
+    Base.init, Base.on_add_extension = init, add
+end
+
+local function seed_lines(f, source)
+    local n = 0
+    for _, line in ipairs(f.debug_lines) do if line:find("^Symbols .*%(" .. source .. "%)") then n = n + 1 end end
+    return n
+end
+
+test("Symbols reroll from a rebuilt client seed: exact boards, zero mistakes, faster than the average board", function()
+    local exact, average, decided, decided_average = {}, {}, 0, 0
+    for seed = 1, 60 do
+        local f = open_symbols(seed, 4, 0.03)
+        f.client._minigame_extension = f.client._minigame_extension or {}
+        register_client_seed(f, 5000 + seed * 13 - 2)
+        exact[#exact + 1] = assert(solve(f, 6000), "seed " .. seed .. ": stalled")
+        eq(f.server._mistakes, 0, "seed " .. seed .. ": mistake")
+        assert(f.reopen_log.reopens <= 4, "seed " .. seed .. ": more rerolls than the limit")
+        eq(seed_lines(f, "average"), 0, "seed " .. seed .. ": seed not rebuilt")
+        if seed_lines(f, "seed") > 0 then decided = decided + 1 end
+        local g = open_symbols(seed, 4, 0.03)
+        average[#average + 1] = assert(solve(g, 6000), "seed " .. seed .. ": stalled without a seed")
+        eq(seed_lines(g, "seed"), 0, "seed " .. seed .. ": no seed, average board")
+        if seed_lines(g, "average") > 0 then decided_average = decided_average + 1 end
+    end
+    print(string.format("  mean solve %.3fs from the rebuilt seed (%d of 60 decided), %.3fs from the average board (%d)",
+        mean(exact), decided, mean(average), decided_average))
+    assert(decided >= decided_average, "every hack the average board decides, the rebuilt seed decides")
+    if not baseline then assert(mean(exact) < mean(average), "the exact boards are faster") end
+end)
 
 local FREQ5 = { frequency_solve_speed = 5, enable_scan = false, enable_auto_scan = false }
 

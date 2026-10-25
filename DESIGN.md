@@ -10,8 +10,9 @@ Do not enable together with NoBrainer: both automate the same input.
 
 ## Decisions
 - 2026-10-14 (user: "make it happen", after a read-only speed analysis the same day): build the three largest speed-ups. Search skips its stage transitions by reopening the terminal, Symbols rerolls slow boards by reopening, and Frequency sends all three tests at once from predicted targets. Rejected for now:
-  - Seed-predicted openings (Drill, Search, exact Symbols lookahead): they rely on the client reproducing each minigame extension's seed (`level_seed` plus registration order, `minigame_system.lua:61-71`), which is unverified on a dedicated-server client.
+  - Seed-predicted openings (Drill, Search; exact Symbols lookahead was adopted on 2026-10-25, below): they rely on the client reproducing each minigame extension's seed (`level_seed` plus registration order, `minigame_system.lua:61-71`), which is unverified on a dedicated-server client.
   - Final press and cancel in the same frame: a dropped press frame with a timely cancel ends the session unsolved, and Drill and Symbols then lose all progress. It would gain only about one ping of player control.
+- 2026-10-25 (user: "gör det minimalistiskt i betterbrainer", after reviewing NoBrainer pull request 1 by Robert, Evasion3356): adopt his exact Symbols lookahead, without a new setting. With the seed known, the reroll decision uses the exact upcoming boards; otherwise the average board as before. A scratch model (BetterBrainer's cost model, 20 000 hacks) gave 0.26-0.38 s per hack over the average board at caps 1-8, within 0.005 s of the optimum; an uncapped search gained at most 0.03 s more than cap 8. The client seed path stays unverified in game (open item).
 - New settings: `decode_reroll_limit` (0-8, default 0 = off; user decision 2026-10-14) and `enable_expedition_reopen` (default off, user decision 2026-10-14; it acts at speed 5 only, like the existing pre-send). The Frequency pipeline acts at speed 5 and needs no setting.
 - Every reopen feature has a kill switch for the rest of the mission after any failure, like the Search pre-send and Drill holding. Failures cost time, never a wrong press.
 
@@ -43,6 +44,10 @@ Do not enable together with NoBrainer: both automate the same input.
 - It rerolls while that time exceeds the reopen delay plus the optimal value of a fresh board with one reroll fewer, plus 0.15 s. The fresh-board value is a finite-horizon optimal stopping value over all 1512 equally likely target sequences, at the measured decision phase and receipt delay.
 - The reopen delay starts at ping + 0.15 s and is then measured. The cap is `decode_reroll_limit` per hack.
 - The scratch model with ping 0.06-0.2 s gives a mean board of 5.1 s, 4.0-4.2 s at cap 4 (1.5 rerolls on average) and 3.8-4.0 s at cap 8.
+- Exact lookahead (from Robert's Smart Seed Reroll): every board a terminal deals follows from its seed (`minigame_decode_symbols.lua:103-140`, `table.lua:781-797`). When that seed is known, the solver deals the next `limit - rerolls` boards itself and values them backwards with the same keep-or-reroll rule, instead of the fresh-board value. Debug lines say `(seed)` or `(average)`.
+  - Host: the minigame's `_seed` after setup is the next board's seed.
+  - Client: no seed is synced. The server hands extension n `level_seed + n` (`minigame_system.lua:30-71`); safe hooks on `MinigameSystem.init` and `on_add_extension` count the client's own registrations from the `level_seed` in its init data (`gameplay_init_step_extensions.lua:133-136`). Level units register in `Level.units` order on both peers. The solver deals up to 256 boards from the terminal's first seed until one matches the received symbols and targets, so earlier openings by anyone are covered.
+  - Unknown seed (no match, hooks registered mid-mission, minigame units spawned at runtime, hot reload): the average board decides, as before.
 
 ## Frequency pipeline (`frequency.lua`)
 - The server scores any test RPC against its current target without checking the sender (`minigame_system.lua:198-218`, `minigame_frequency.lua:252-284`). The next target is drawn from the seed and rerolled against the server's current frequency (`minigame_frequency.lua:67-103`).
@@ -68,6 +73,7 @@ Do not enable together with NoBrainer: both automate the same input.
 | Symbols setup builds a board | `minigame_decode_symbols.lua:93-144,183-211` |
 | Frequency scoring and targets | `minigame_frequency.lua:67-115,138-178,252-290`; `scripts/extension_systems/minigame/minigame_system.lua:117-123,198-218` |
 | RNG | `math.next_random`, `types/darktide/core.lua` (LCG identified in game, `types/SOURCES.md`) |
+| Minigame seeds | `scripts/extension_systems/minigame/minigame_system.lua:30-71`; `scripts/foundation/managers/extension/extension_system_base.lua:94-114`; `gameplay_init_step_extensions.lua:133-136`; `scripts/game_states/game/state_gameplay.lua:29`; `minigame_base.lua:7-32` |
 
 ## Tests
 See `tests/README.md` (command, what it checks, dated result). Offline evidence, not in-game results.
@@ -86,6 +92,7 @@ See `tests/README.md` (command, what it checks, dated result). Offline evidence,
   | Frequency | local server | | 0.040 s |
 
   Every case has zero mistakes. Existing suites unchanged: speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
+- 2026-10-25, exact lookahead: `tests/reopen_spec.lua` 18/18. Symbols on a local server 4.003 -> 3.719 s (server seed); a client with a rebuilt seed at 30 ms 4.091 -> 4.002 s. Other suites unchanged: speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
 
 ## Runtime status
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
@@ -93,4 +100,5 @@ See `tests/README.md` (command, what it checks, dated result). Offline evidence,
 
 ## Open items
 - 2026-10-14: verify in game that re-interaction succeeds at the first allowed frame on a dedicated server, and measure the Symbols reopen delay (DMF debug: `Symbols reroll` and `Reopen` lines).
-- 2026-10-14: seed-predicted openings and exact Symbols lookahead need an in-game check that a client reproduces the server's minigame seeds (NoBrainer's `seed_status`).
+- 2026-10-14: seed-predicted openings need an in-game check that a client reproduces the server's minigame seeds (NoBrainer's `seed_status`).
+- 2026-10-25: exact Symbols lookahead is built; check in a dedicated-server mission that the client's decisions log `(seed)`, not `(average)`.
