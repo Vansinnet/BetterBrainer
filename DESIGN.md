@@ -25,7 +25,7 @@ Do not enable together with NoBrainer: both automate the same input.
   1. Injects the ordinary ephemeral cancel (`action_two_pressed`, `player_character_state_minigame.lua:206,307-309`).
   2. On the local `on_exit`, suspends the solver instead of resetting it.
   3. Injects `interact_pressed` (`base_interaction.lua:57-59`) once the interactor would pick the terminal (`InteractorExtension._find_interaction_object`, `interactor_extension.lua:567-588`), `can_interact(terminal, "decoding")` holds, and 0.15 s have passed since the session started. That is 0.05 s of margin over the native gate.
-  4. When the new session of the same minigame starts, resumes the solver (`module.resume`).
+  4. When the new session of the same minigame starts, resumes the solver (`module.resume`). Only after its own interact: before it, the same minigame is the old session replayed by a client correction (`on_enter_server_corrected_state` initializes the terminal again, `player_character_state_minigame.lua:127-148`), and is ignored. Seen in game 2026-10-25: "resumed 0.020s after the request" with no interact, then "session ended 0.000s after the resume, reopening switched off".
   While the reopen is in flight every routed action is neutral, so a held fire or jump key cannot act in the walking state.
 - Precondition at request: the terminal is a `decoding` interactee with a decoder device, and the interactor already finds it as chosen or focus target. During the minigame it is only a focus target, because `interaction_allowed` is false while the minigame is active.
 - Timing: the client's interactor runs before the character state machine in a fixed frame (`extension_system_configuration.lua:361,397`), and the interaction completes in the frame it starts (`interactor_extension.lua:325-397`). The sequence is: cancel frame, interact frame (the CSM enters minigame in the same frame), setup frame (that frame's input already counts). The server runs the same frames in order, so the client does not wait for any receipt.
@@ -92,11 +92,12 @@ See `tests/README.md` (command, what it checks, dated result). Offline evidence,
   | Frequency | local server | | 0.040 s |
 
   Every case has zero mistakes. Existing suites unchanged: speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
+- 2026-10-25, replayed old session: `tests/reopen_spec.lua` 19/19. The new case reproduces the in-game log lines without the fix and passes with it.
 - 2026-10-25, exact lookahead: `tests/reopen_spec.lua` 18/18. Symbols on a local server 4.003 -> 3.719 s (server seed); a client with a rebuilt seed at 30 ms 4.091 -> 4.002 s. Other suites unchanged: speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
 
 ## Runtime status
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
-- Exact Symbols lookahead (65bc9c2): 2026-10-25, dt-cli log in a regular mission as a client of a mission server (`is_client=true`, `host_type=mission_server`), limit 8. One hack: `Symbols reroll 1 of 8 (seed): board 3.88s, reroll 2.81s (delay 0.25s)`, reopen resumed after 0.097 s, then `Symbols board kept (seed): 2.56s`. The client rebuilt the seed, and the reroll dealt the faster board it predicted.
+- Exact Symbols lookahead (65bc9c2): 2026-10-25, dt-cli log in a regular mission as a client of a mission server (`is_client=true`, `host_type=mission_server`), limit 8. One hack: `Symbols reroll 1 of 8 (seed): board 3.88s, reroll 2.81s (delay 0.25s)`, reopen resumed after 0.097 s, then `Symbols board kept (seed): 2.56s`. The client rebuilt the seed, and the reroll dealt the faster board it predicted. The next hack's reroll was taken for a resume by a replayed old session and switched reopening off for the mission (fixed the same day; the fix is not yet seen in game).
 - 1.1.0: Symbols reroll reported working in game by the user (2026-10-14; build, mission and ping not recorded). Search transition skip also reported working (same day). The Frequency pipeline is offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
 
 ## Open items

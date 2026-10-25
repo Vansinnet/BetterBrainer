@@ -341,6 +341,47 @@ test("Symbols reroll refused: one attempt, the player re-enters, no mistake", fu
     end
 end)
 
+-- A client correction resimulates frames: after our cancel the corrected minigame state initializes the same terminal
+-- again (player_character_state_minigame.lua:127-148), consumes a frame and exits again, before our interact. Seen in game 2026-10-25: "resumed 0.020s after the request" with no interact, then
+-- "session ended 0.000s after the resume, reopening switched off".
+test("Symbols reroll with the old session replayed before the interact: not a resume, reopening stays on", function()
+    local rerolled = 0
+    for seed = 1, 30 do
+        local f = open_symbols(seed, 4, 0.05)
+        local replayed = false
+        local elapsed = solve(f, 6000, function(g, n)
+            local C = g.sides.client
+            local interacted = false
+            for _, line in ipairs(g.debug_lines) do if line:find("^Reopen: interact") then interacted = true end end
+            if not replayed and not interacted and g.reopen_log.requests > 0 and C.mode == "walking" then
+                replayed = true
+                local state = C.state
+                state._minigame_character_state_component = {
+                    interface_is_level_unit = true, interface_level_unit_id = 1, interface_game_object_id = -1 }
+                local terminal = g.extensions[g.terminal]
+                local previous = terminal.minigame_system
+                terminal.minigame_system = C.mg._minigame_extension
+                assert(state:_check_initialize_minigame_from_unit(), "corrected state initializes the terminal")
+                terminal.minigame_system = previous
+                eq(state._minigame, C.mg, "the client's own minigame")
+                g:consume(state, n, g.t)
+                state:on_exit(C.player.player_unit, g.t, "walking")
+            end
+        end)
+        assert(elapsed, "seed " .. seed .. ": stalled\n" .. table.concat(f.debug_lines, "\n"))
+        eq(f.server._mistakes, 0, "seed " .. seed .. ": mistake")
+        local interacted = false
+        for _, line in ipairs(f.debug_lines) do
+            assert(not line:find("switched off"), "seed " .. seed .. ": " .. line)
+            if line:find("^Reopen: requested") then interacted = false end
+            if line:find("^Reopen: interact") then interacted = true end
+            assert(not line:find("^Reopen: resumed") or interacted, "seed " .. seed .. ": resumed without an interact")
+        end
+        if replayed then rerolled = rerolled + 1; assert(f.reopen_log.reopens >= 1, "seed " .. seed .. ": no reopen") end
+    end
+    assert(rerolled >= 10, "too few rerolls to replay: " .. rerolled)
+end)
+
 -- A client counts MinigameSystem registrations from the level seed. The real init and on_add_extension run on
 -- stubbed ExtensionSystemBase parents; the client terminal is the third extension.
 local function register_client_seed(f, level_seed)

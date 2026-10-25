@@ -163,6 +163,9 @@ local function select_session(state, frame)
         return
     end
     if ctx.active_minigame ~= mg then
+        -- Before our interact the same minigame is the old session replayed by a client correction
+        -- (on_enter_server_corrected_state, player_character_state_minigame.lua:127-148), not the new entry.
+        if reopen and reopen.mg == mg and not reopen.interacted then return end
         if active then end_session("session_changed") end
         local t = ctx.time()
         -- The server initializes the minigame in this same frame; its state reports whether it ran the frame's input.
@@ -241,7 +244,7 @@ local function reopen_input(action, original, t)
         if not sampling_ephemeral then return original end
         if pending.phase == "interact_sent" and t >= pending.interact_t + 0.1 then pending.phase = "exited" end
         if pending.phase == "exited" and can_reinteract(pending, t) then
-            pending.phase, pending.interact_t = "interact_sent", t
+            pending.phase, pending.interact_t, pending.interacted = "interact_sent", t, true
             mod:debug("Reopen: interact at %.3f", t)
             return true
         end

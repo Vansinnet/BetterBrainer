@@ -161,7 +161,7 @@ Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. With `--ba
 
 | Command | What it checks | Last result |
 |---|---|---|
-| `reopen_spec.lua` | Search transition skip, Symbols reroll and the Frequency pipeline through both sides' state machines | 2026-10-25: 18/18, zero mistakes in every case |
+| `reopen_spec.lua` | Search transition skip, Symbols reroll and the Frequency pipeline through both sides' state machines | 2026-10-25: 19/19, zero mistakes in every case |
 
 How it works:
 - A small model of the character state machine wraps the real `PlayerCharacterStateMinigame` and minigame classes on both sides. A cancel exits through the real `on_exit`. A sampled `interact_pressed` re-enters if the decoder allows it: minigame inactive, more than 0.1 s since that side's last entry.
@@ -187,6 +187,7 @@ Results, mean solve over 40 boards (Symbols 60):
 Further cases:
 - A terminal out of view: no reopen.
 - A refused re-entry: one attempt, then reopening is switched off; the player re-enters by hand.
+- The old session replayed after the cancel and before the interact (a client correction re-initializes the same terminal, consumes a frame and exits): not taken as the new session, reopening stays on. Without the fix this reproduces the in-game lines "resumed 0.020s" and "session ended 0.000s after the resume".
 - A press lost before the reopen: the stage is planned again.
 - A recentre 0.5 s late on an ordered channel.
 - A late first frame: no pipeline.
