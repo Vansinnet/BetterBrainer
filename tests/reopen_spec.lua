@@ -133,6 +133,16 @@ local function machine(f, options)
             return result
         end
     end
+    -- The player cancels for one frame (player_character_state_minigame.lua:173-174,307-309).
+    function f:press_cancel()
+        self.raw.action_two_pressed = true
+        local sample = self.sample
+        self.sample = function(g, ...)
+            local result = sample(g, ...)
+            g.raw.action_two_pressed, g.sample = false, sample
+            return result
+        end
+    end
     -- The player enters by hand (after a refused or abandoned reopen, or for another session).
     function f:manual_entry()
         for _, s in ipairs(sides) do
@@ -380,6 +390,54 @@ test("Symbols reroll with the old session replayed before the interact: not a re
         if replayed then rerolled = rerolled + 1; assert(f.reopen_log.reopens >= 1, "seed " .. seed .. ": no reopen") end
     end
     assert(rerolled >= 10, "too few rerolls to replay: " .. rerolled)
+end)
+
+-- Seen in game 2026-10-25: the player cancelled 0.69 s after a resume, reopening switched off, and later manual
+-- entries got no rerolls. Only a session lost without on_exit (a server correction) counts as a refused entry.
+test("Symbols: the player's own cancel right after a resume keeps reopening on for the next entry", function()
+    local later = 0
+    for seed = 1, 30 do
+        local f = open_symbols(seed, 4, 0.05)
+        local cancel_at, entered, requests_at_entry = nil, false, nil
+        solve(f, 6000, function(g)
+            local C = g.sides.client
+            if not cancel_at then
+                for _, line in ipairs(g.debug_lines) do
+                    if line:find("^Reopen: resumed") then cancel_at = g.t + 0.3 end
+                end
+            elseif g.t >= cancel_at and g.t < cancel_at + STEP and C.mode == "minigame" then
+                g:press_cancel()
+            elseif not entered and C.mode == "walking" and g.t > cancel_at + 0.5 then
+                entered, requests_at_entry = true, g.reopen_log.requests
+                g:manual_entry()
+            end
+        end)
+        eq(f.server._mistakes, 0, "seed " .. seed .. ": mistake")
+        for _, line in ipairs(f.debug_lines) do assert(not line:find("switched off"), "seed " .. seed .. ": " .. line) end
+        if requests_at_entry and f.reopen_log.requests > requests_at_entry then later = later + 1 end
+    end
+    assert(later >= 5, "too few rerolls after the manual entry: " .. later)
+end)
+
+test("Symbols: a resumed session lost without on_exit (server correction) still switches reopening off", function()
+    local switched = 0
+    for seed = 1, 20 do
+        local f = open_symbols(seed, 4, 0.05)
+        local lost = false
+        solve(f, 400, function(g)
+            local C = g.sides.client
+            if lost then return end
+            for _, line in ipairs(g.debug_lines) do
+                if line:find("^Reopen: resumed") and C.mode == "minigame" then
+                    -- The correction swaps the state machine to walking without on_exit (character_state_machine.lua:68-81).
+                    lost, C.mode = true, "walking"
+                    break
+                end
+            end
+        end)
+        for _, line in ipairs(f.debug_lines) do if line:find("session ended .* switched off") then switched = switched + 1 end end
+    end
+    assert(switched >= 5, "too few corrections switched reopening off: " .. switched)
 end)
 
 -- A client counts MinigameSystem registrations from the level seed. The real init and on_add_extension run on

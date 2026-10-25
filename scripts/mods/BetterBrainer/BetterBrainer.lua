@@ -116,9 +116,12 @@ local solvers = {
 }
 
 local function end_session(reason)
-    -- An unsolved session that ends right after a resume was most likely rolled back: the server refused the entry.
+    -- An unsolved session lost right after a resume was most likely rolled back: the server refused the entry. A server
+    -- correction swaps the state without on_exit (character_state_machine.lua:68-81); the player's own cancel, dodge or
+    -- look-away exits through on_exit ("session_end") and keeps reopening on.
     local t, mg = ctx.time(), ctx.active_minigame
-    if resumed_t and t and t - resumed_t < REOPEN_TIMEOUT and not (mg and mg:is_completed()) then
+    if resumed_t and reason == "ownership_changed" and t and t - resumed_t < REOPEN_TIMEOUT
+        and not (mg and mg:is_completed()) then
         reopen_off = true
         mod:debug("Reopen: session ended %.3fs after the resume, reopening switched off", t - resumed_t)
     end
