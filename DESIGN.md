@@ -1,6 +1,7 @@
 # BetterBrainer: design
 Status 2026-10-25: 1.0.4 released; in development: 1.0.4 plus the Frequency pipeline. ModID `BetterBrainer`. Verified: static and offline (see Tests); the Frequency pipeline is not yet confirmed in game.
 Do not enable together with NoBrainer: both automate the same input.
+Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod + servo skull + Symbols reroll + Search transition skip. Its `drill.lua`, `frequency.lua`, `balance.lua` and `scan.lua` are identical copies of ours: change them here first, then copy. Its `symbols.lua`, `search.lua` and core carry the reroll and transition-skip code, so a fix to those solvers or to the core is made in both mods by hand. Never add reroll or transition skip back to BetterBrainer (user decision 2026-10-25: too strong).
 
 ## Files
 - `BetterBrainer.lua`: settings cache, input routing (`InputService._get` scoped to the local `HumanInputHandler` samples), session selection from `PlayerCharacterStateMinigame._update_input`, and the server input-state gate.
