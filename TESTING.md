@@ -1,8 +1,14 @@
 # BetterBrainer Runtime Acceptance
 
-Latest revision: **17/17 reopen checks**, **36/36 Drill checks**, **21/21 Search checks**, **73/73 speed checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
+Latest revision: **6/6 reopen checks**, **36/36 Drill checks**, **21/21 Search checks**, **73/73 speed checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
 
-## Reopen Speed-Ups And Frequency Pipeline — 2026-10-14
+## Reroll And Skip Stage Transitions Removed — 2026-10-25
+
+- Change: BetterBrainer is back to 1.0.4 plus the Frequency pipeline (user decision 2026-10-25: reroll and transition skip are too strong for BetterBrainer; they move to NoBrainer). The reopen controller, `decode_reroll_limit` and `enable_expedition_reopen` are gone; `symbols.lua`, `search.lua`, `BetterBrainer_data.lua` and `BetterBrainer_localization.lua` are the 1.0.4 files again.
+- Offline: `tests/reopen_spec.lua` 6/6 (Frequency cases only), `speed_spec` 73/73, `search_spec` 21/21, `drill_spec` 36/36, `scan_marker_spec` 4/4. `tools\validate.ps1` on the whole mod: 0 LuaLS diagnostics, all 10 files load in LuaJIT.
+- In game (pending): Symbols and Search behave as in 1.0.4 (no auspex close and reopen); Frequency step 3 below still applies.
+
+## Reopen Speed-Ups And Frequency Pipeline — 2026-10-14 (reroll and transition skip removed 2026-10-25)
 
 - Change (design in `DESIGN.md`):
   - Core reopen controller: cancel, then the 0 s `decoding` interaction once allowed, then resume the solver in the new session.
