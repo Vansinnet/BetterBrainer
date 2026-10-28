@@ -188,6 +188,14 @@ Limits:
 
 Offline evidence, not in-game results.
 
+## Balance centre-hold checks (`balance_spec.lua`)
+
+```powershell
+& tools\luajit\luajit.exe mods\active\BetterBrainer\tests\balance_spec.lua
+```
+
+A closed loop of the server's `update` and `on_axis_set` (`minigame_balance.lua:89-187`, game settings) against `balance.lua` over a delayed link, without the fixture. Positions reach the solver quantized, and the server may run input up to two ticks later than the solver assumes. It measures the distance from the centre with kicks and the hold without them, as host and at 30-250 ms. Thresholds are in the file; an optional argument runs another `balance.lua`. Last result 2026-10-28: 7/7 (1.0.4 solver: 0/7). The same file is NoBrainer's, where the in-game checks are recorded.
+
 ## Server input state in the fixture
 
 `fixture.lua` models the server's per-tick `server_unit_data_state` (`player_unit_data_extension.lua:984-991`): the fixture's server runs client frame n in tick n + 3, and reports frame n with `had_received_input = true` unless a test substituted older input for it. The state is queued to the client behind the RPCs of that frame with the normal receipt delay and read through the mod's real hook on a stub `PlayerUnitDataExtension._read_server_unit_data_state` (`f:report_frame(frame, had)` delivers one by hand; `speed_spec.lua` uses it where it drives single frames; `f.drop_server_state = true` drops every state). The real server reports once per tick, usually a frame or more after the input arrived, so the fixture's wait is close to the real one. The fixture cannot reorder state ahead of RPCs; that remaining assumption is described in `../TESTING.md`.
