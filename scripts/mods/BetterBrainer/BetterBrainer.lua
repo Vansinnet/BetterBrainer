@@ -288,9 +288,9 @@ local function solve_input(action, original)
             if ui and ui:view_active("scanner_display_view") then
                 if sampling_ephemeral then
                     if action == "action_two_pressed" and not fast_exit_sent
-                        and (((active == search and settings.enable_expedition_auto_solve
-                            or active == drill and settings.enable_drill_auto)
-                            and ctx.active_minigame:is_completed())
+                        and (active == search and settings.enable_expedition_auto_solve
+                            and ctx.active_minigame:is_completed()
+                            or active == drill and settings.enable_drill_auto and drill.completed(ctx.active_minigame)
                             or active.cancel_requested and active.cancel_requested()) then
                         -- Skip a confirmed outro, or leave an uncertain response without retrying it.
                         fast_exit_sent = true

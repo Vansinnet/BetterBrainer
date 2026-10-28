@@ -268,6 +268,46 @@ test("Frequency later session on the same device, W held through the entry: no m
     if not baseline then assert(pipelined >= 12, "most later sessions pipeline") end
 end)
 
+local DRILL5 = { drill_solve_speed = 5, enable_scan = false, enable_auto_scan = false }
+
+local function open_drill(seed, delay)
+    local f = fixture(DRILL5)
+    local Drill = f.env.MinigameDrill
+    local init = Drill.init
+    Drill.init = function(self, unit, is_server, _, context) return init(self, unit, is_server, 9000 + seed * 17, context) end
+    f:open("drill", true, delay or 0.05)
+    Drill.init = init
+    return machine(f)
+end
+
+-- A decoder needs a new hack after each interrupt (decoder_device_extension.lua:74-85,204-220): decode_interrupt
+-- returns the solved minigame to gameplay (minigame_base.lua:52-54,82-92), and the client keeps the solved stage until
+-- the new setup's receipt (minigame_drill.lua:57-64), so it still shows completion when the new session starts.
+test("Drill re-hack after a decoder interrupt: the fast exit waits for the new session's receipts", function()
+    for seed = 1, 20 do
+        local f = open_drill(seed, 0.05)
+        local n, C, S = 1, f.sides.client, f.sides.server
+        while not (f.server:is_completed() and C.mode == "walking" and S.mode == "walking") do
+            assert(n < 3000, "seed " .. seed .. ": first session stalled")
+            f:ctick(n); n = n + 1
+        end
+        for _ = 1, 25 do f:ctick(n); n = n + 1 end
+        f.server:decode_interrupt()
+        for _ = 1, 10 do f:ctick(n); n = n + 1 end
+        eq(f.client:is_completed(), true, "the client still shows the solved board")
+        f:press_interact()
+        local started, done = false, false
+        for i = n, n + 3000 do
+            f:ctick(i)
+            if f.server._current_stage == 1 then started = true end
+            if started and f.server:is_completed() and f.client:is_completed() then done = true; break end
+        end
+        assert(done, "seed " .. seed .. ": the re-hack closed unsolved (client " .. C.mode .. ", server stage "
+            .. tostring(f.server._current_stage) .. ")")
+        eq(f.server._mistakes, 0, "seed " .. seed .. ": mistake")
+    end
+end)
+
 test("Frequency on a local server: every stage in the first press frame", function()
     local times = {}
     for seed = 1, 20 do

@@ -314,6 +314,11 @@ return function(ctx)
         if id == "enable_drill_auto" or id == "drill_solve_speed" then module.reset("settings") end
     end
 
+    -- A re-entered terminal still shows its last session's completion until this session's setup receipts arrive.
+    function module.completed(mg)
+        return fresh(mg) and mg:is_completed()
+    end
+
     function module.cancel_requested()
         if not game or not ctx.settings.enable_drill_auto or not ctx.session_valid(game)
             or game:is_completed() then return false end

@@ -1,7 +1,7 @@
 # BetterBrainer: design
-Status 2026-10-25: 1.0.5 released (1.0.4 plus the Frequency pipeline). ModID `BetterBrainer`. Verified: static and offline (see Tests); the Frequency pipeline is not yet confirmed in game.
+Status 2026-10-25: 1.0.5 released (1.0.4 plus the Frequency pipeline). Unreleased since: the Drill fast exit waits for this session's receipts (2026-10-28). ModID `BetterBrainer`. Verified: static and offline (see Tests); the Frequency pipeline is not yet confirmed in game.
 Do not enable together with NoBrainer: both automate the same input.
-Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod + servo skull + Symbols reroll + Search transition skip. Its `drill.lua`, `frequency.lua`, `balance.lua` and `scan.lua` are identical copies of ours: change them here first, then copy. Its `symbols.lua`, `search.lua` and core carry the reroll and transition-skip code, so a fix to those solvers or to the core is made in both mods by hand. Never add reroll or transition skip back to BetterBrainer (user decision 2026-10-25: too strong).
+Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod + servo skull + Symbols reroll + Search transition skip. Its `frequency.lua` and `scan.lua` are identical copies of ours: change them here first, then copy. Its `drill.lua` is ours plus the seed-predicted opening and its `balance.lua` ours plus the centre hold (both built in NoBrainer first, 2026-10-28), so a fix to those solvers is also made in both mods by hand. Its `symbols.lua`, `search.lua` and core carry the reroll and transition-skip code, so a fix to those solvers or to the core is made in both mods by hand. Never add reroll or transition skip back to BetterBrainer (user decision 2026-10-25: too strong).
 
 ## Files
 - `BetterBrainer.lua`: settings cache, input routing (`InputService._get` scoped to the local `HumanInputHandler` samples), session selection from `PlayerCharacterStateMinigame._update_input`, and the server input-state gate.
@@ -12,6 +12,7 @@ Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod 
 ## Decisions
 - 2026-10-14 (user: "make it happen", after a read-only speed analysis the same day): build the three largest speed-ups: Search transition skip and Symbols reroll by reopening the terminal, and the Frequency pipeline. Rejected then: seed-predicted Drill and Search openings (they rely on a client reproducing each minigame extension's seed), and the final press and cancel in the same frame (a dropped press frame ends the session unsolved).
 - 2026-10-25 (user: "jag vill återgå i betterbrainer till 1.0.4 ... de är för starka"): remove Symbols reroll, Search transition skip and their reopen controller from BetterBrainer; they live on in NoBrainer (its `DESIGN.md` has their design and in-game history). BetterBrainer keeps the Frequency pipeline (user decision the same day). `symbols.lua`, `search.lua`, `BetterBrainer_data.lua` and `BetterBrainer_localization.lua` are the 1.0.4 files; the core is 1.0.4 plus the pipeline's session-frame report, consumed-input flag and neutral first frame. The pipeline acts at speed 5 and needs no setting; it switches itself off for the mission after a mismatch, so failures cost time, never a wrong press.
+- 2026-10-28 (user: "Ja, rätta den", after the bug was found in NoBrainer the same day): the Drill fast exit requires this session's receipts (`drill.completed`: `fresh` and `is_completed`). A decoder needs a new hack after every interrupt; `decode_interrupt` returns the solved minigame to gameplay, but the client keeps the solved stage until the new setup's `rpc_minigame_sync_set_stage` (`minigame_drill.lua:57-64`, `minigame_base.lua:52-54,82-92,200-213`, `decoder_device_extension.lua:204-220`). The fast exit then cancelled the new session as soon as the scanner view was open, which the server ran as an ordinary cancel. Shown offline (`tests/reopen_spec.lua`, fails without the fix); how often it happened in game depends on whether the view opens before the receipts, which is unmeasured.
 
 ## Frequency pipeline (`frequency.lua`)
 - The server scores any test RPC against its current target without checking the sender (`minigame_system.lua:198-218`, `minigame_frequency.lua:252-284`). The next target is drawn from the seed and rerolled against the server's current frequency (`minigame_frequency.lua:67-103`).
@@ -37,10 +38,12 @@ Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod 
 See `tests/README.md` (command, what it checks, dated result). Offline evidence, not in-game results.
 - 2026-10-14, `tests/reopen_spec.lua`: Frequency pipeline mean solve 0.280 -> 0.136 s at 30 ms, 1.120 -> 0.472 s at 165 ms, 0.040 s on a local server; zero mistakes.
 - 2026-10-25, after removing reroll and transition skip: `tests/reopen_spec.lua` 6/6 (Frequency cases only, same results), speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
+- 2026-10-28, Drill fast-exit fix: `tests/reopen_spec.lua` 7/7 (6/7 without the fix: the Drill re-hack after a decoder interrupt closed unsolved on every seed it reached), speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
 
 ## Runtime status
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
 - Frequency pipeline (1.0.5): offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
+- Drill fast-exit fix (2026-10-28, unreleased): offline only; in-game step in `TESTING.md` under the 2026-10-28 entry.
 
 ## Open items
 - 2026-10-14: verify the Frequency pipeline in game as a dedicated-server client at speed 5 (`TESTING.md`, step 3).

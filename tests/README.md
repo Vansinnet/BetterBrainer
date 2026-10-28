@@ -161,7 +161,7 @@ Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. With `--ba
 
 | Command | What it checks | Last result |
 |---|---|---|
-| `reopen_spec.lua` | The Frequency pipeline through both sides' state machines | 2026-10-25: 6/6, zero mistakes in every case |
+| `reopen_spec.lua` | The Frequency pipeline through both sides' state machines, and a Drill re-hack after a decoder interrupt (the fast exit waits for the new session's receipts) | 2026-10-28: 7/7, zero mistakes in every case (6/7 without the fast-exit fix) |
 
 How it works:
 - A small model of the character state machine wraps the real `PlayerCharacterStateMinigame` and minigame classes on both sides. A cancel exits through the real `on_exit`. A sampled `interact_pressed` re-enters if the decoder allows it: minigame inactive, more than 0.1 s since that side's last entry.

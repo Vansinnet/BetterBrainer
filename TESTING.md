@@ -1,6 +1,12 @@
 # BetterBrainer Runtime Acceptance
 
-Latest revision: **6/6 reopen checks**, **36/36 Drill checks**, **21/21 Search checks**, **73/73 speed checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
+Latest revision: **7/7 reopen checks**, **36/36 Drill checks**, **21/21 Search checks**, **73/73 speed checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
+
+## Drill Fast Exit Waits For The Session's Receipts — 2026-10-28
+
+- Change: the fast exit after a solved Drill requires this session's receipts (`drill.completed`), so a re-hack of a decoder after an interrupt no longer closes while the client still shows the solved board (`DESIGN.md`, Decisions 2026-10-28). Same change in NoBrainer (f2a125b).
+- Offline: `tests/reopen_spec.lua` 7/7 (the new Drill re-hack case fails without the fix), `speed_spec` 73/73, `search_spec` 21/21, `drill_spec` 36/36, `scan_marker_spec` 4/4. `toolsalidate.ps1` on the whole mod: 0 LuaLS diagnostics, all 10 files load in LuaJIT.
+- In game (pending): as a client in a mission with Drill decoders (`cm_habs`), Drill auto-solve on, hack the same decoder after each interrupt. Every hack should solve without closing by itself.
 
 ## Reroll And Skip Stage Transitions Removed — 2026-10-25
 
