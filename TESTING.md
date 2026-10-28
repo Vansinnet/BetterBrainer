@@ -6,7 +6,7 @@ Latest revision: **13/13 reopen checks**, **36/36 Drill checks**, **21/21 Search
 
 - Change: NoBrainer's Drill seed-predicted opening, unchanged (`drill.lua` identical, seed counter and entry-frame lookup in the core). At speed 5 the first move goes out on the entry frame from the predicted board.
 - Offline: `tests/reopen_spec.lua` 13/13, `speed_spec` 73/73, `search_spec` 21/21, `drill_spec` 36/36, `balance_spec` 7/7, `scan_marker_spec` 4/4. `toolsalidate.ps1` on the whole mod: 0 LuaLS diagnostics, all 10 files load in LuaJIT.
-- In game: passed in NoBrainer 2026-10-28 (Hab Dreyko, client). Pending for this build: with only BetterBrainer enabled, Drill speed 5 and the DMF debug log on, hack a `cm_habs` decoder twice; each hack logs `Drill opening: frame ...` and `registered +0.000`, and neither closes by itself.
+- In game: passed in NoBrainer 2026-10-28 (Hab Dreyko, client). Load check of this build, 2026-10-28 (Auspex, hub, after a mod reload; deployed copy matched, NoBrainer disabled): `auspex hooks --mod BetterBrainer` 48 targets, all hooked through DMF, no origin conflicts, `MinigameSystem.init` and `on_add_extension` included; no BetterBrainer error in the log. Pending for this build: with only BetterBrainer enabled, Drill speed 5 and the DMF debug log on, hack a `cm_habs` decoder twice; each hack logs `Drill opening: frame ...` and `registered +0.000`, and neither closes by itself.
 
 ## Drill Fast Exit Waits For The Session's Receipts — 2026-10-28
 
