@@ -5,7 +5,7 @@ local ctx = { mod = mod, settings = settings }
 local local_state, active, observed_at
 local sampling_service, sampling_time, sampling_ephemeral
 local fast_exit_sent
-local entering_frame, entering -- input frame last checked, and whether it enters a minigame
+local entering_frame, entering, entering_game -- input frame last checked, whether it enters a minigame, and which
 
 function ctx.time()
     local time = Managers.time
@@ -20,6 +20,27 @@ end
 function ctx.pacing(id)
     return pacing[id]
 end
+
+-- The server hands extension n the level seed + n (minigame_system.lua:30-71) and syncs no seed to clients. A client
+-- registers the same level units in the same order, so it counts from the same level seed.
+local next_seeds = setmetatable({}, { __mode = "k" }) -- MinigameSystem -> seed its next extension gets
+local initial_seeds = setmetatable({}, { __mode = "k" }) -- MinigameExtension -> its first seed
+
+function ctx.initial_seed(extension)
+    return extension and initial_seeds[extension]
+end
+
+mod:hook_safe("MinigameSystem", "init", function(self, context, system_init_data)
+    local seed = system_init_data and system_init_data.level_seed
+    next_seeds[self] = type(seed) == "number" and seed or nil
+end)
+mod:hook_safe("MinigameSystem", "on_add_extension", function(self, world, unit)
+    local seed = next_seeds[self]
+    if not seed then return end
+    local extension = self._unit_to_extension_map[unit]
+    if extension then initial_seeds[extension] = seed end
+    next_seeds[self] = seed + 1
+end)
 
 -- While input frames arrive late, the server keeps running an older input frame (authoritative_player_input_
 -- handler.lua:124-136,153-157: after a miss it can keep the last frame received before the miss even while it
@@ -246,13 +267,26 @@ mod:hook_require("scripts/extension_systems/unit_data/player_unit_data_extension
     end)
 end)
 
+-- The minigame an entering state initializes from its terminal (player_character_state_minigame.lua:376-402).
+local function initializing_minigame(state)
+    local component = state._minigame_character_state_component
+    if not component or component.interface_level_unit_id == NetworkConstants.invalid_level_unit_id
+        and component.interface_game_object_id == NetworkConstants.invalid_game_object_id then return nil end
+    local is_level_unit = component.interface_is_level_unit
+    local id = is_level_unit and component.interface_level_unit_id or component.interface_game_object_id
+    local spawner = Managers.state.unit_spawner
+    local terminal = spawner and spawner:unit(id, is_level_unit)
+    local extension = terminal and ScriptUnit.has_extension(terminal, "minigame_system")
+    return extension and extension:minigame()
+end
+
 -- The first minigame frame is sampled before the state machine initializes the minigame
 -- (player_character_state_minigame.lua:138-148), so no solver owns it yet. A direction there would still reach the
 -- new minigame (a Search step, a Drill selection, a Frequency change), and a late frame replays the one before it.
 local function entering_minigame()
     local frame = ctx.input_frame
     if entering_frame == frame then return entering end
-    entering_frame, entering = frame, false
+    entering_frame, entering, entering_game = frame, false, nil
     local players = Managers.player
     local player = players and players:local_player_safe(1)
     local unit = player and player.player_unit
@@ -260,6 +294,7 @@ local function entering_minigame()
     if csm and csm:current_state_name() == "minigame" then
         local state = csm:current_state()
         entering = state ~= nil and state:minigame() == nil
+        if entering then entering_game = initializing_minigame(state) end
     end
     return entering
 end
@@ -274,6 +309,9 @@ local scan_actions = { action_one_pressed = true, action_one_hold = true, action
 
 local function solve_input(action, original)
     if not active and MOVEMENT[action] and not sampling_ephemeral and entering_minigame() then
+        -- Drill may open with a seed-predicted move; anything else gets neutral input.
+        local value = entering_game and drill.entry_input(action, entering_game, sampling_time)
+        if value ~= nil then return value end
         return action == "move" and Vector3(0, 0, 0) or 0
     end
     local scanning = settings.enable_auto_scan and scan_actions[action]
