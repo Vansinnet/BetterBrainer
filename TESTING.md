@@ -1,6 +1,16 @@
 # BetterBrainer Runtime Acceptance
 
-Latest revision: **13/13 reopen checks**, **36/36 Drill checks**, **21/21 Search checks**, **73/73 speed checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
+Latest revision: **14/14 reopen checks**, **36/36 Drill checks**, **25/25 Search checks**, **85/85 speed checks**, **7/7 Balance checks** and **4/4 scan marker checks** pass offline in LuaJIT against Darktide 1.13.0 Lua source. The earlier 173/173 integration result and validation records below are historical. The acceptance checklist is not a reported live pass.
+
+## Player Input Kept Out Of Search And Drill, Both-Enabled Warning — 2026-11-08
+
+- Change (`DESIGN.md`, Decisions 2026-11-08): Search sends a released primary and neutral directions while the client shows a transition; Drill sends neutral directions until this session's own gameplay state arrives (first hack, re-hack showing the solved board, transition); a chat warning when NoBrainer is enabled too; shared core helpers. Same change in NoBrainer through `tools/sync-mods.py`.
+- Offline: speed 85/85, search 25/25, drill 36/36, reopen 14/14, balance 7/7, scan markers 4/4. The new Search cases (LMB or E held through the solve, speed 3, clicks every 0.3 s, 0.3 s receipts) stall on every seed with the old `search.lua`; the new Drill case (W held 0.6 s into a first hack and a re-hack, with and without the opening) logs `unexplained` with the old `drill.lua`. A scratch sweep at 0.05-0.3 s receipts and W held 2-30 frames gave 0 of 20 boards with an unexplained node after the fix (before: 19-20 of 20 without the opening, 12-13 of 20 with it at 0.25-0.3 s). `toolsalidate.ps1`: 0 LuaLS diagnostics, every file loads in LuaJIT.
+- In game (pending), as a client of a mission server with the DMF debug log on, only BetterBrainer enabled:
+  1. Drill speed 1, `cm_habs` decoder: walk up holding W, press E, keep W for half a second. Expected: the Drill solves and the log has no `Drill: unexplained node` line. Repeat on the re-hack after a decoder interrupt.
+  2. At a measured round trip of 250 ms or more, Search speed 5: hold LMB through the whole hack. Expected: no fail sound, the hack completes as fast as without the key.
+  3. Enable NoBrainer as well. Expected: a chat warning from both mods; disable one.
+  4. `auspex hooks --mod BetterBrainer`: the same targets as before (48), all hooked.
 
 ## Drill Seed-Predicted Opening — 2026-10-28
 

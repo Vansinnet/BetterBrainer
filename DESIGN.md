@@ -1,7 +1,7 @@
 # BetterBrainer: design
-Status 2026-10-28: 1.1.0 released (1.0.5 plus the Drill seed-predicted opening, the Drill fast exit waiting for this session's receipts, and the Balance centre hold). ModID `BetterBrainer`. Verified: static and offline (see Tests); the Drill and Balance code passed in game in NoBrainer; the Frequency pipeline is not yet confirmed in game.
+Status 2026-11-08: 1.1.0 released (1.0.5 plus the Drill seed-predicted opening, the Drill fast exit waiting for this session's receipts, and the Balance centre hold); unreleased since: the Search and Drill input fixes, the both-enabled warning and shared core helpers (Decisions, 2026-11-08). ModID `BetterBrainer`. Verified: static and offline (see Tests); the Drill and Balance code passed in game in NoBrainer; the Frequency pipeline is not yet confirmed in game.
 Do not enable together with NoBrainer: both automate the same input.
-Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod + servo skull + Symbols reroll + Search transition skip. Its `frequency.lua`, `scan.lua` and `balance.lua` are identical copies of ours: change them here first, then copy (the Balance centre hold was the exception, built in NoBrainer first and copied here after its in-game checks). Its `drill.lua` is an identical copy again since the seed-predicted opening came here (2026-10-28, built in NoBrainer first). Its `symbols.lua`, `search.lua` and core carry the reroll and transition-skip code, so a fix to those solvers or to the core is made in both mods by hand. Never add reroll or transition skip back to BetterBrainer (user decision 2026-10-25: too strong).
+Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod + servo skull + Symbols reroll + Search transition skip. The workspace sync tool keeps the shared code the same (`tools/mod-sync.json`, `docs/validation.md`, Sync groups): change it here, run `python -I tools\sync-mods.py propagate --mod BetterBrainer`, test and commit both mods, then `record` the group. Identical files are copied; `symbols.lua`, `search.lua`, the core and the data files are merged into NoBrainer's versions, which carry its additions. A release fails while the shared code differs (user requirement 2026-11-08). Never add reroll or transition skip back to BetterBrainer (user decision 2026-10-25: too strong).
 
 ## Files
 - `BetterBrainer.lua`: settings cache, input routing (`InputService._get` scoped to the local `HumanInputHandler` samples), session selection from `PlayerCharacterStateMinigame._update_input`, and the server input-state gate.
@@ -16,6 +16,11 @@ Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod 
 
 - 2026-10-28 (user: "ja", asked whether the Drill code was in BetterBrainer too): the Drill seed-predicted opening comes here unchanged from NoBrainer, with its client seed counter (`ctx.initial_seed`) and entry-frame minigame lookup in the core. Design, failure handling and the in-game check are in NoBrainer's `DESIGN.md` (Drill seed-predicted opening; Runtime status 2026-10-28). It is not one of the reopen features the 2026-10-25 decision keeps out: it sends the first move earlier and never closes or reopens a terminal.
 - 2026-10-28 (user: "bygg den i nobrainer först, och fungerar den bra lägger vi in den i betterbrainer också"; after the in-game checks: "Ja, BetterBrainer"): Balance holds the point as close to the centre as the server allows. NoBrainer's `balance.lua` is copied here unchanged.
+- 2026-11-08 (user: "fixa nu allt utom F1", after a review and a recheck of its findings against this file and `TESTING.md`):
+  - Search and Drill no longer pass the player's own keys while the session has no gameplay state of its own. Search returns a released primary and neutral directions while the client shows a transition: the server leaves it on its own clock (`minigame_decode_search.lua:163-201`), so a held or clicked key scored at the old cursor (a stall at 0.3 s receipts with the key held). Drill returns neutral directions until this session's own state arrives, on a first hack (client minigame still in `none`), on a re-hack that still shows the solved board, and in a transition: one held direction selected a node the solver never sent and switched planned aim off for the mission (any W held after the entry frame without the opening, about 0.3 s with it at 300 ms). No server gate changed; the server ignores neutral input.
+  - A warning in chat when NoBrainer is enabled too (`on_all_mods_loaded`, and when the mod is enabled later).
+  - The core shares `ctx.MOVE`, `ctx.PRIMARY`, `ctx.movement` and the receipt tracker `ctx.openings` (Drill, Frequency); unreachable input branches are gone (the only caller passes `"input_service"` and a time; `action_one_released` is not a game input, `input_handler_settings.lua:26`). Every suite gave byte-identical output.
+  - Not done, by decision: a fix for Frequency receipts of a previous session after a re-entry within one round trip (Open items); the Symbols retry after a lost press (it would replace the recorded cancel rule); a Search entry-frame opening.
 
 ## Balance centre hold (`balance.lua`)
 - The design, the offline numbers and the in-game checks are in NoBrainer's `DESIGN.md` (Balance centre hold, Runtime status). In short, it cancels the outward push in full and steers along a velocity target toward the centre with a braking curve. The 1.0.4 controller scaled its command by 0.35 and rested about 0.13 radii off centre.
@@ -27,7 +32,7 @@ Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod 
 - That frequency is set by `generate_board` at every setup and changed only by a non-zero axis in `on_axis_set`. On a dedicated server `update`'s camera path does not run (`minigame_frequency.lua:79-92,138-216`). Setup always sends the stale initial `_start_seed`, so the server's seed lies somewhere on the chain from it.
 - At speed 5 the solver never steers, not even before the gameplay receipt. The core makes the first minigame frame's directions neutral: it is sampled before the state initializes the minigame, so no solver owns it yet. A safe hook on `on_axis_set` flags any direction the local player's `_update_input` consumed anyway.
 - Prediction:
-  - The solver searches the chain from the received start seed (up to 256 draws) for positions whose frequency and redraw rule reproduce the first target.
+  - The solver searches the chain from the received start seed (256 seed steps, 128 positions a server draw can start from) for positions whose frequency and redraw rule reproduce the first target.
   - The first target pins where it was drawn, not where setup began: a later start whose frequency skips the same redraws gives the same target. All matching positions must therefore predict the same targets 2 and 3, or the session uses one test per receipt.
   - Offline, 36 of 40 first sessions and 14 of 20 later sessions on the same device pipeline.
 - A late first frame would replay the input from before the session (`authoritative_player_input_handler.lua:153-157`). The core records the server's report for the session's first frame (`had_received_input`), and the first armed press waits up to 0.1 s for it. Only an on-time report allows pipelining; a missing or late one means one test per receipt.
@@ -44,15 +49,20 @@ Relation to NoBrainer (`mods/active/NoBrainer/DESIGN.md`): NoBrainer = this mod 
 
 ## Tests
 See `tests/README.md` (command, what it checks, dated result). Offline evidence, not in-game results.
+- 2026-11-08: speed 85/85 (12 new lifecycle cases: disable, gameplay exit, unload and auto-solve off mid-session leave no automation and no mistake), search 25/25 (4 new, fail without the fix), drill 36/36, reopen 14/14 (1 new, fails without the fix), balance 7/7, scan markers 4/4. The core-helper cuts gave byte-identical output.
 - 2026-10-14, `tests/reopen_spec.lua`: Frequency pipeline mean solve 0.280 -> 0.136 s at 30 ms, 1.120 -> 0.472 s at 165 ms, 0.040 s on a local server; zero mistakes.
 - 2026-10-25, after removing reroll and transition skip: `tests/reopen_spec.lua` 6/6 (Frequency cases only, same results), speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
 - 2026-10-28, Drill seed-predicted opening: `tests/reopen_spec.lua` 13/13 (the six Frequency cases plus NoBrainer's seven Drill cases, ported with its harness changes); kept board 3.045 s against 3.143 s without the opening at 30 ms receipts, 3.224 s against 3.458 s at 165 ms. Speed 73/73, search 21/21, drill 36/36, balance 7/7, scan markers 4/4.
 - 2026-10-28, Drill fast-exit fix: `tests/reopen_spec.lua` 7/7 (6/7 without the fix: the Drill re-hack after a decoder interrupt closed unsolved on every seed it reached), speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
 
 ## Runtime status
+- 2026-11-08 input fixes and both-enabled warning: offline only. In-game test in `TESTING.md` (2026-11-08).
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
 - Frequency pipeline (1.0.5): offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
 - Drill fast-exit fix and seed-predicted opening (2026-10-28, unreleased): both passed in game in NoBrainer the same day (identical `drill.lua`, NoBrainer `DESIGN.md`); BetterBrainer's own build is not yet tested in game (`TESTING.md`, 2026-10-28).
 
 ## Open items
+- 2026-11-08: Frequency can test a previous session's target after a re-entry within about one round trip of an exit, then loses every later receipt to the wrong test until the player cancels and re-enters (offline, forced timing; receipts carry no session id). Parked by user decision: Frequency is only seen on the communication-hack event device; revisit with the pipeline's first in-game check.
+- 2026-11-08: unmeasured whether the scanner view opens a frame after the minigame entry; until it opens the core passes input through (`BetterBrainer.lua`, `solve_input`). Check with an Auspex trace on a Drill entry with W held.
+- 2026-11-08: measure before deciding: Drill presses after a confirmed hold at about 300 ms (`Drill press: waited` lines) and how often the Frequency pipeline misses the server report of the session's first frame.
 - 2026-10-14: verify the Frequency pipeline in game as a dedicated-server client at speed 5 (`TESTING.md`, step 3).

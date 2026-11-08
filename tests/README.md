@@ -151,7 +151,7 @@ Last results (2026-10-04, Linux LuaJIT 2.1.1788856981, source 1.13.0): **36 pass
 
 Boards come from the real `MinigameDecodeSearch:generate_board` with the fixture RNG (`init` is wrapped only to change the seed). The tests record stage-advancing presses and cursor moves on the native server, delay the server's resume by moving `_state_start_time`, replay the last received input frame on the server, delay cursor receipts (optionally in order), drop one press, reopen the same terminal mid-stage with the cursor off-centre (plain, after a settings change, and on the target with receipts stalled 1 s), stall input for 12 or 20 frames from each of the first six frames after a stage-2 step at 50/165/300 ms receipts, drop all server state, and run on a local server and at speed 3.
 
-Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. With `--baseline`, the stall check at 300 ms reports a mistake on 6 of 120 boards for the 1.0.2 `search.lua` and 20 of 120 for the pre-send without the gate; that version also fails the settings and stalled-receipt reopen checks. `fixture.lua` gives each fixture a no-op `mod:debug` that tests may replace to capture DMF debug lines.
+Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. 2026-11-08: **25 passed**; the four new cases hold LMB or E through the solve, at speed 3, or click every 0.3 s, at 0.3 s receipts, and stall on every seed with the `search.lua` before the transition fix. With `--baseline`, the stall check at 300 ms reports a mistake on 6 of 120 boards for the 1.0.2 `search.lua` and 20 of 120 for the pre-send without the gate; that version also fails the settings and stalled-receipt reopen checks. `fixture.lua` gives each fixture a no-op `mod:debug` that tests may replace to capture DMF debug lines.
 
 ## Reopen and pipeline checks (`reopen_spec.lua`)
 
@@ -161,7 +161,7 @@ Last results (2026-10-04): **21 passed, 0 failed**, about 70 seconds. With `--ba
 
 | Command | What it checks | Last result |
 |---|---|---|
-| `reopen_spec.lua` | The Frequency pipeline through both sides' state machines; the Drill seed-predicted opening (kept, seed and first-seed boards, a wrong board, quick re-entry, W held, local server) and a Drill re-hack after a decoder interrupt | 2026-10-28: 13/13, zero mistakes in every case |
+| `reopen_spec.lua` | The Frequency pipeline through both sides' state machines; the Drill seed-predicted opening (kept, seed and first-seed boards, a wrong board, quick re-entry, W held, local server) a Drill re-hack after a decoder interrupt, and W held 0.6 s into a first hack and a re-hack (fails with the `drill.lua` before 2026-11-08) | 2026-11-08: 14/14, zero mistakes in every case |
 
 How it works:
 - A small model of the character state machine wraps the real `PlayerCharacterStateMinigame` and minigame classes on both sides. A cancel exits through the real `on_exit`. A sampled `interact_pressed` re-enters if the decoder allows it: minigame inactive, more than 0.1 s since that side's last entry.
