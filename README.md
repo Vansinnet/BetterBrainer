@@ -1,6 +1,6 @@
 # BetterBrainer
 
-Current release: **1.1.0**.
+Current release: **1.2.0**.
 
 A standalone DMF mod for Darktide minigame assistance. This is a new implementation, not a dependency or extension of NoBrainer.
 
