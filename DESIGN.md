@@ -56,7 +56,7 @@ See `tests/README.md` (command, what it checks, dated result). Offline evidence,
 - 2026-10-28, Drill fast-exit fix: `tests/reopen_spec.lua` 7/7 (6/7 without the fix: the Drill re-hack after a decoder interrupt closed unsolved on every seed it reached), speed 73/73, search 21/21, drill 36/36, scan markers 4/4.
 
 ## Runtime status
-- 2026-11-08 input fixes and both-enabled warning: offline only. In-game test in `TESTING.md` (2026-11-08).
+- 2026-11-08 input fixes and both-enabled warning: in game 2026-11-09 (`cm_habs`, client, Drill speed 1): two Drill hacks entered with W held kept planned aim on (every move predicted, no `unexplained`); all 48 hook targets hooked. Not yet seen in game: a decoder re-hack, Search, the warning (`TESTING.md`, 2026-11-08).
 - 1.0.4: user-tested in remote missions at speed 5 (`TESTING.md`).
 - Frequency pipeline (1.0.5): offline only; the remaining steps are in `TESTING.md` under the 2026-10-14 entry.
 - Drill fast-exit fix and seed-predicted opening (2026-10-28, unreleased): both passed in game in NoBrainer the same day (identical `drill.lua`, NoBrainer `DESIGN.md`); BetterBrainer's own build is not yet tested in game (`TESTING.md`, 2026-10-28).
